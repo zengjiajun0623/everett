@@ -55,7 +55,7 @@ COPY scripts/apply_hook.py scripts/apply_daa_hook.py scripts/apply_kawpow_hooks.
 # AFTER the KawPow hooks, mirroring ci_prepare.sh's order.
 RUN python3 /src/scripts/apply_hook.py params/mutations/rewards.go \
  && python3 /src/scripts/apply_daa_hook.py consensus/ethash/consensus.go \
- && python3 /src/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go
+ && python3 /src/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go
 COPY client/kawpow_engine.go consensus/ethash/
 
 # Step 5: verification gate 1 (schedule + DAA + KawPow). All suites MUST

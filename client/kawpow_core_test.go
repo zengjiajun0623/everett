@@ -2,6 +2,7 @@ package ethash
 
 import (
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"golang.org/x/crypto/sha3"
@@ -143,3 +144,47 @@ func TestKawPowVectors(t *testing.T) {
 }
 
 var _ = sha3.NewLegacyKeccak512
+
+// TestKawPowActivation: chain-keyed activation (GENESIS_SPEC 5a.5 v2).
+// Wheeler and mainnet are KawPow from genesis; the dev chain keeps the
+// EVERETT_KAWPOW env choice; any other chain is forced off so a stray env
+// var can never corrupt verification of a non-Everett chain.
+func TestKawPowActivation(t *testing.T) {
+	saved := kawpowEnabled
+	defer func() { kawpowEnabled = saved }()
+
+	cases := []struct {
+		chainID  uint64
+		envState bool // kawpowEnabled before the call (the env default)
+		want     bool
+	}{
+		{15537393, false, true}, // mainnet: always on
+		{15537393, true, true},
+		{15537392, false, true}, // Wheeler v2: always on
+		{15537392, true, true},
+		{15537391, false, false}, // dev chain: env decides
+		{15537391, true, true},
+		{1, true, false},  // Ethereum mainnet: forced off despite env
+		{61, true, false}, // ETC: forced off
+		{1, false, false},
+	}
+	for _, c := range cases {
+		kawpowEnabled = c.envState
+		SetKawPowChainID(new(big.Int).SetUint64(c.chainID))
+		if kawpowEnabled != c.want {
+			t.Errorf("chain %d (env=%v): kawpow=%v, want %v", c.chainID, c.envState, kawpowEnabled, c.want)
+		}
+	}
+
+	// nil / non-uint64 chain IDs: forced off.
+	kawpowEnabled = true
+	SetKawPowChainID(nil)
+	if kawpowEnabled {
+		t.Error("nil chain ID must force kawpow off")
+	}
+	kawpowEnabled = true
+	SetKawPowChainID(new(big.Int).Lsh(big.NewInt(1), 70))
+	if kawpowEnabled {
+		t.Error("non-uint64 chain ID must force kawpow off")
+	}
+}

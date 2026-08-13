@@ -130,7 +130,16 @@ stack sets its own value, that is listed too.
 | `HTTP_VHOSTS` | `node,localhost,127.0.0.1` | same | Allowed HTTP `Host` headers. The default covers the compose miner and host-localhost curls without reopening the DNS-rebinding hole a `*` wildcard would |
 | `DATADIR` | `/data` | `/data` | Node datadir (bind-mounted volume) |
 
-Wheeler mode (live testnet, chain ID 15537392 — bootnode from README):
+Wheeler mode (live testnet, chain ID 15537392 — bootnode from README).
+**Wheeler runs KawPow since its v2 re-genesis (2026-08-13)**: the node
+image (post-`ci_prepare` parity) validates and serves KawPow work
+automatically — activation is keyed to the chain ID, no env var needed.
+Note the bundled **ethminer image is ethash-only and cannot mine
+Wheeler v2**: run the node with `MINE=1` + `MINER_THREADS=0` to serve
+work, and point a KawPow miner (kawpowminer, T-Rex) at a
+`kawpow-stratum` sidecar (`stratum/`, containerized service planned) or
+at the node's getwork URL. Wheeler v1 datadirs are incompatible: wipe
+the volume and re-init.
 
 ```yaml
     environment:

@@ -25,5 +25,5 @@ cp "$EVERETT/client/kawpow_core.go" "$EVERETT/client/kawpow_core_test.go" consen
 python3 "$EVERETT/scripts/apply_hook.py" params/mutations/rewards.go
 python3 "$EVERETT/scripts/apply_daa_hook.py" consensus/ethash/consensus.go
 echo "core-geth prepared with Everett patches"
-python3 "$EVERETT/scripts/apply_kawpow_hooks.py" consensus/ethash/consensus.go consensus/ethash/sealer.go
+python3 "$EVERETT/scripts/apply_kawpow_hooks.py" consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go
 cp "$EVERETT/client/kawpow_engine.go" consensus/ethash/

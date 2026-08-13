@@ -95,7 +95,7 @@ they never should have anyway).
 | Network | Chain ID | Genesis | Purpose |
 |---|---|---|---|
 | **Everett** (mainnet) | 15537393 · mainnet's last PoW block | genesis.json · empty extraData until the v1.0 freeze commits the constitution hash | Reserved for the Article VIII launch ceremony. Do not start it casually. |
-| **Wheeler** (testnet) | 15537392 · the penultimate PoW block, the rehearsal | genesis-wheeler.json · extraData tags "EVERETT WHEELER TESTNET", distinct genesis hash | Named for John Wheeler, Everett's advisor. Identical consensus rules via the family hooks; coins valueless by intent. Live 2026-08-13. |
+| **Wheeler** (testnet) | 15537392 · the penultimate PoW block, the rehearsal | genesis-wheeler.json · extraData tags "EVERETT WHEELER V2 KAWPOW", genesis hash `abd9ba…5e8934` | Named for John Wheeler, Everett's advisor. Identical consensus rules via the family hooks; coins valueless by intent. v1 (ethash, extraData "EVERETT WHEELER TESTNET") ran 2026-08-13 to ~4.6k blocks and was retired at the **v2 re-genesis 2026-08-13: KawPow from genesis**, rehearsing mainnet's real algorithm. |
 | **dev** (local/CI) | 15537391 | genesis-dev.json · 0x20000 difficulty floor so CPU miners work | Throwaway devnets and CI e2e. Never sign anything you care about on it. The legacy genesis-devnet.json (chainId 15537393, colliding with reserved mainnet — an EIP-155 replay hazard for any key reused there) is deprecated: kept in-tree for stacks already running it, not for new devnets. |
 
 ## 5a. Client patches (delta from stock core-geth)
@@ -120,10 +120,16 @@ including a 1559 burn; two-node trustless sync from genesis).
    signatures.
 4. **DONE** — Test gates wired into `boot_devnet.sh` (TestEverett +
    TestASERT run before every build; build aborts on failure).
-5. **OPEN** — KawPow launch algorithm (decided 2026-08-12): a Go port is
-   required (nearest reference lineage: go-quai's ProgPoW). The devnet runs
-   ethash as a plumbing placeholder until the port lands. This is the
-   largest remaining client work item.
+5. **DONE 2026-08-13** — KawPow launch algorithm: ported bit-exact
+   (Ravencoin test vectors, differential gate `TestKawPow` in CI and in
+   the Docker image build), GPU-proven live (RTX 3080, stock kawpowminer,
+   both getwork and the stratum sidecar — see `stratum/E2E_REPORT.md`).
+   Activation is **chain-keyed** (`SetKawPowChainID`, hook 5 in
+   `apply_kawpow_hooks.py`): Wheeler and mainnet run KawPow from genesis,
+   the dev chain (15537391) keeps an `EVERETT_KAWPOW=1` env choice for
+   experiments, and every other chain ID is forced off — consensus never
+   depends on local environment on a public network. Wheeler flipped to
+   KawPow at its v2 re-genesis 2026-08-13.
 6. **OPEN** — Later EVM surface: Shanghai/Cancun opcodes without
    withdrawals (ETC's Spiral upgrade is the precedent) and EIP-7702
    (type-4 transactions) without EIP-4844: fork-bundle surgery, not

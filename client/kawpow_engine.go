@@ -7,11 +7,12 @@
 // slow, but it exists only as a devnet/bootstrap fallback. Real hashrate
 // arrives over the work API from T-Rex/kawpowminer.
 //
-// ACTIVATION (v1, deliberately explicit): the EVERETT_KAWPOW=1 environment
-// variable. Consensus rules must never depend on local environment on a
-// public network, so before Wheeler or mainnet runs KawPow this must move
-// into the chain config (tracked in GENESIS_SPEC 5a.5). The env gate exists
-// so the algorithm can be proven end-to-end on an isolated devnet first.
+// ACTIVATION (v2, chain-keyed): SetKawPowChainID is called from the eth
+// backend once the chain config is loaded — Wheeler (v2) and Everett
+// mainnet run KawPow from genesis, full stop; any non-Everett chain is
+// forced OFF. Consensus never depends on local environment on a public
+// network. The EVERETT_KAWPOW=1 env var is honored ONLY on the local/CI
+// dev chain (15537391), where both algorithms remain useful.
 
 package ethash
 
@@ -30,6 +31,37 @@ var kawpowEnabled = os.Getenv("EVERETT_KAWPOW") == "1"
 
 // KawPowEnabled reports whether this node runs the KawPow proof of work.
 func KawPowEnabled() bool { return kawpowEnabled }
+
+// Everett-family chain IDs. These mirror the constants in
+// params/mutations/rewards_everett.go (this package cannot import them);
+// GENESIS_SPEC 5b is the source of truth.
+const (
+	kpEverettChainID uint64 = 15537393 // mainnet (reserved, Art. VIII)
+	kpWheelerChainID uint64 = 15537392 // Wheeler testnet (KawPow since v2)
+	kpDevChainID     uint64 = 15537391 // local/CI dev chain
+)
+
+// SetKawPowChainID keys KawPow activation to the chain actually being
+// run. Called from the eth backend as soon as the chain config is loaded
+// (hook 5 in scripts/apply_kawpow_hooks.py). Wheeler and mainnet are
+// KawPow from genesis; the dev chain keeps the env-var choice so both
+// algorithms stay testable; every other chain is forced OFF so a stray
+// EVERETT_KAWPOW=1 can never corrupt verification of a non-Everett chain.
+func SetKawPowChainID(id *big.Int) {
+	if id == nil || !id.IsUint64() {
+		kawpowEnabled = false
+		return
+	}
+	switch id.Uint64() {
+	case kpEverettChainID, kpWheelerChainID:
+		kawpowEnabled = true
+	case kpDevChainID:
+		// keep the env-var default from init
+	default:
+		kawpowEnabled = false
+	}
+	log.Info("Everett proof-of-work selected", "chainID", id.Uint64(), "kawpow", kawpowEnabled)
+}
 
 type kawpowEpoch struct {
 	epoch       uint64
