@@ -4,7 +4,7 @@ Machine-checked proofs about Everett's consensus delta. Core Lean 4
 only, no mathlib: a monetary constitution's arguments are finite
 integer arithmetic and induction, and the proofs read that way.
 
-## EverettSchedule.lean — Article III
+## EverettSchedule.lean · Article III
 
 The model mirrors `client/rewards_everett.go` exactly (same floor
 semantics, same constants), faithful because the Go side uses
