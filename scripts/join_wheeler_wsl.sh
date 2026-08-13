@@ -72,6 +72,15 @@ if [ "${MINE:-0}" = "1" ]; then
   MINEARGS="--mine --miner.threads ${THREADS:-2} --miner.etherbase $ADDR"
 fi
 
+# The bootnode must ALSO be a static peer: --bootnodes only seeds
+# discovery, and after any peer drop the node rediscovers the bootnode by
+# its advertised (public) ENR address — which LAN nodes cannot reach when
+# the router doesn't hairpin. A static entry keeps a persistent dial to
+# the address we were actually given. Cost 20 minutes of a zero-peer
+# retry loop to learn.
+mkdir -p /root/wheeler-data/geth
+echo "[\"$BOOTNODE\"]" > /root/wheeler-data/geth/static-nodes.json
+
 cat > /root/start_wheeler.sh <<STARTEOF
 #!/usr/bin/env bash
 exec $GETH --datadir /root/wheeler-data --networkid 15537392 --port 30313 \\
