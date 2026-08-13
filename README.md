@@ -22,6 +22,20 @@ schedule with a permanent tail keeps the security budget funded forever, and
 zero premine plus a burden-of-proof-against-change amendment rule leaves no
 seed for a constituency to grow from.
 
+## Join the Wheeler testnet (permissionless)
+
+Wheeler (chain ID 15537392) is the live testnet running Everett's exact
+consensus rules. Its public bootnode:
+
+```
+enode://ad614b8cc1737cdaeaa38706ef131c924a37e507bc8d1e76897037056d6c67bfafca8ed4c65e6be76ed319f38c89a6a5f9acb75b8da822146fc6cc4d9d117b5f@71.183.54.11:30303
+```
+
+Grab the node package from whoever pointed you here (or build from source
+below), then `./run-node.sh` to sync trustlessly from genesis, or
+`MINE=1 ETHERBASE=0xYou ./run-node.sh` to mine. Nobody's permission
+required; that is the point. Wheeler coins are valueless test material.
+
 ## Run it yourself
 
 Prerequisites: macOS or Linux with `git`, Go 1.22+ (`brew install go`), and

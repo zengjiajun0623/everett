@@ -125,6 +125,14 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
   `NET=wheeler BOOTNODE=enode://<key>@<ts-ip>:30303 scripts/make_dist.sh`
   (key in dist/wheeler-bootnode.txt). Mainnet chain ID 15537393 reserved
   for the Art. VIII ceremony: never start it casually.
-- Next: Tailscale login → rebake Wheeler package → send to Justin; G6
-  KawPow port (P1 vendor+diff); pre-v1.0 trademark/domain sweep; 3080
+- 2026-08-13: **Wheeler went public.** Repo public. Bootnode reachable on
+  the open internet at 71.183.54.11:30303 via NAT-PMP mappings (router
+  granted them programmatically; UPnP was off, NAT-PMP on). External
+  reachability verified from three continents (check-host.net). Renewal
+  loop: scripts/nat_renew.sh (hourly PMP leases, nohup'd on the bootnode
+  Mac; restart it after reboots). Package rebaked with the public enode;
+  README carries permissionless join instructions. Tailscale path retired
+  (kept as fallback). Jiajun mining to his own EOA (0xf3F5...CBA2).
+- Next: G6 KawPow port (P1 vendor+diff); VPS bootnode when the network
+  outgrows one laptop; block explorer; pre-v1.0 trademark sweep; 3080
   realism pass (practical once KawPow lands).
