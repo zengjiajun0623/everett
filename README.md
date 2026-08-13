@@ -5,15 +5,15 @@
 A genesis-ready, machine-verified proof-of-work EVM chain: pre-merge
 Ethereum's machine (uncles, EIP-1559 burn, modern EVM) sealed by KawPow,
 pointed away from the Merge, launched with an empty genesis state and a
-monetary constitution frozen before anyone exists to lobby against it —
-and proven, not just promised:
+monetary constitution frozen before anyone exists to lobby against it.
+Proven, not just promised:
 
-- **Live**: the Wheeler testnet runs the exact mainnet rules — KawPow
+- **Live**: the Wheeler testnet runs the exact mainnet rules: KawPow
   from genesis, ASERT difficulty, GPU-mined, supply audited wei-for-wei
   every five minutes by an independent Python recomputation (uncles and
   the 1559 burn included).
 - **Machine-checked**: Article III is formalized in Lean 4 with zero
-  sorries ([fv/](fv/)) — the supply bound is an inductive invariant
+  sorries ([fv/](fv/)). The supply bound is an inductive invariant
   (base issuance ≤ 0.2·B + ~25.71M ETT decay component, forever; ×9/8
   under the uncle cap), decay provably dies at era 5360, and from block
   536,000,000 every reward is EXACTLY the 0.2 tail. The ASERT
@@ -22,10 +22,10 @@ and proven, not just promised:
   Lean) are pinned to one set of vectors; CI re-proves everything on
   every push.
 
-- [CONSTITUTION.md](CONSTITUTION.md) — the monetary constitution. Governs.
-- [GENESIS_SPEC.md](GENESIS_SPEC.md) — client, consensus, and launch spec.
-- [fv/](fv/) — the theorems. [LAUNCH_DIFFICULTY.md](LAUNCH_DIFFICULTY.md) —
-  launch parameters from measured data. [RUNBOOK.md](RUNBOOK.md) — the
+- [CONSTITUTION.md](CONSTITUTION.md) · the monetary constitution. Governs.
+- [GENESIS_SPEC.md](GENESIS_SPEC.md) · client, consensus, and launch spec.
+- [fv/](fv/) · the theorems. [LAUNCH_DIFFICULTY.md](LAUNCH_DIFFICULTY.md) ·
+  launch parameters from measured data. [RUNBOOK.md](RUNBOOK.md) · the
   full build log, failures included.
 
 ## Thesis in three sentences
@@ -86,7 +86,7 @@ supply accounting including uncles (Art. III.5) and the 1559 burn (Art. IV).
 ## Docker / Portainer quickstart
 
 GPU mining stack for a headless server: the node (built from source in
-Docker, verification gates included in the build — a failed gate fails the
+Docker, verification gates included in the build; a failed gate fails the
 image) plus an external ethminer over RPC. Portainer-ready; no prebuilt
 binaries, no secrets.
 
@@ -106,7 +106,7 @@ safety notes): [docker/README.md](docker/README.md).
 
 v0.1, August 2026. A launch-in-waiting by design: the spec exists to be
 ready, not to be launched into calm. Every constitutional article has been
-verified live on Wheeler (rewards, uncles, ASERT, and the first burn —
+verified live on Wheeler (rewards, uncles, ASERT, and the first burn:
 147,000 wei provably destroyed in block 1818) and the schedule is
 machine-checked in Lean. Remaining before an Article VIII ceremony:
 independent bootnode infrastructure, the name sweep, and a date. See
