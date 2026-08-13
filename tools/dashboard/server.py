@@ -127,8 +127,9 @@ def run_audit():
         try:
             out = subprocess.run(
                 ["python3", AUDIT], env={**os.environ, "RPC": RPC},
-                capture_output=True, text=True, timeout=240)
-            lines = out.stdout.strip().splitlines() or ["no output"]
+                capture_output=True, text=True, timeout=600)
+            lines = out.stdout.strip().splitlines() or [
+                "no stdout; stderr tail:"] + out.stderr.strip().splitlines()[-4:]
             tail = lines[-6:]
             verdict = "PASS" if any("PASS" in l for l in lines) else "FAIL"
             stats = next((l for l in lines if l.startswith("blocks=")), "")
