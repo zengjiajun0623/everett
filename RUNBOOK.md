@@ -199,3 +199,48 @@ fail, so a green run means something.
 - **Windows lesson, twice:** Windows tears down child processes when the
   launching session exits. Both the WSL node and the GPU miner need
   scheduled tasks (`WheelerNode`, `EverettGpuSoak`).
+
+## 2026-08-13 (late): stratum sidecar — written, built, NOT yet run live
+
+Written to fix the getwork churn (936 mining suspensions, production
+stalling near difficulty 4M):
+
+- `stratum/kawpow-stratum.go` (~300 lines) implements the KawPow stratum
+  dialect from G6_P1_NOTES.md §4.2. Consensus-free by design: the node
+  verifies every submit (light KawPow path), the sidecar only translates
+  transports and tracks jobs. **Compiles clean.**
+- `stratum/kawpow-stratum_test.go`: round-trip test for the compact-bits
+  encoder (kawpowminer parses `bits` with SetCompact) plus hex handling.
+- `stratum/README.md`: protocol table, run instructions, and the one open
+  question — whether kawpowminer negotiates plain mode or NiceHash mode
+  from a `stratum://` URL. If NiceHash, `handle` needs a mode branch.
+- `scripts/run_stratum.sh` to build+run; `scripts/ship_stratum_e2e.sh` runs
+  the whole proof in ONE shell invocation (build, unit test, launch,
+  raw-client protocol smoke test, GPU miner via scheduled task, N minutes
+  of sampling, metrics vs the getwork baseline, cleanup, and a written
+  report at build/STRATUM_E2E_REPORT.md).
+
+Three bugs found and fixed in review before any run:
+1. `json.Encoder` used concurrently by the job broadcaster and the submit
+   handler — frames could interleave. Added a per-client write mutex.
+2. Fragile `fmt.Sscanf("%x")` parsing of target/height — replaced with
+   `big.Int.SetString` and `strconv.ParseUint`.
+3. Job broadcast held the global lock during network writes, so one slow
+   miner stalled job propagation to all. Now snapshots under the lock and
+   sends outside it.
+
+Also fixed in the engine: `kawpowFullFor` built the 1 GB mining DAG while
+holding `kpMu`, the same mutex verification uses, so a mining node would
+freeze block verification for minutes. Now uses its own `kpDatasetMu`; the
+two locks are never held simultaneously (no deadlock cycle). Compiles.
+
+**BLOCKED, not broken:** the live run needs shell execution, and the
+session's safety classifier stopped servicing anything beyond trivial
+commands (known long-transcript failure; the fix is `/compact`, which only
+the user can run). Everything above is on disk and uncommitted.
+
+**To finish (one command after `/compact` or in a fresh session):**
+
+```bash
+bash ~/everett/scripts/ship_stratum_e2e.sh
+```

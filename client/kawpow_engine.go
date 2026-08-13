@@ -133,10 +133,17 @@ func asUint32Slice(b []byte) []uint32 {
 }
 
 // kawpowFullFor returns the mining dataset for `number`, building it once.
+//
+// It guards the multi-gigabyte build with its OWN mutex (kpDatasetMu), not
+// kpMu, so building the mining DAG (minutes) never blocks block
+// verification (which only takes kpMu, via kawpowEpochFor). The two locks
+// are never held at the same time: kawpowEpochFor acquires and releases
+// kpMu before kpDatasetMu is taken, and kawpowEpoch fields are immutable
+// after creation, so reading e.cache/e.datasetSize outside kpMu is safe.
 func kawpowFullFor(number uint64) []uint32 {
 	e := kawpowEpochFor(number)
-	kpMu.Lock()
-	defer kpMu.Unlock()
+	kpDatasetMu.Lock()
+	defer kpDatasetMu.Unlock()
 	if kpDataset != nil && kpDatasetEpoch == e.epoch {
 		return kpDataset
 	}
@@ -149,6 +156,8 @@ func kawpowFullFor(number uint64) []uint32 {
 }
 
 var (
+	kpDatasetMu    sync.Mutex // guards the mining DAG build, separate from
+	                          // kpMu so it never blocks verification
 	kpDataset      []uint32
 	kpDatasetEpoch uint64 = ^uint64(0)
 )
