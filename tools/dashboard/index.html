@@ -103,6 +103,11 @@ const CAT = { "0xf3f527b70af6012f328d3ede7fcd3f5f3ca6cba2": ["var(--cat-a)", "ji
               "0x1000000000000000000000000000000000000001": ["var(--cat-b)", "justin·docker"] };
 const OTHER = ["var(--cat-c)", null];
 const minerInfo = m => CAT[m] || [OTHER[0], m.slice(0, 8) + "…" + m.slice(-4)];
+// Origin heuristic: stratum GPU nonces begin with the sidecar's 2-byte
+// extranonce (a tiny value); node-side CPU nonces are uniform random —
+// a random 64-bit nonce starts <= 0x000f once in 4096 tries.
+const origin = no => { const top = parseInt((no || "0x0").slice(2, 6), 16);
+  return top <= 0x000f ? "gpu" : "cpu"; };
 
 const fmt = (x, unit="") => {
   if (x == null) return "—";
@@ -238,10 +243,13 @@ async function refresh() {
 
   $("feed").querySelector("tbody").innerHTML = s.slice(-14).reverse().map(b => {
     const [col, name] = minerInfo(b.m);
+    const o = origin(b.no);
     return `<tr><td class="num">${b.n}</td><td class="num">${ago(Math.max(0, st.now - b.t))}</td>
-      <td><span class="chip" style="background:${col}"></span>${name}</td>
+      <td><span class="chip" style="background:${col}"></span>${name}<span style="color:var(--ink3)"> · ${o}</span></td>
       <td class="num">${fmt(b.d)}</td><td class="num">${b.u || ""}</td></tr>`;
   }).join("");
+  const cpuBlocks = s.filter(b => origin(b.no) === "cpu").length;
+  $("s-uncle2").textContent = `window avg · mac cpu blocks: ${cpuBlocks}`;
 }
 refresh();
 setInterval(refresh, 5000);

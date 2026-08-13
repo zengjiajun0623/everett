@@ -59,6 +59,7 @@ def fetch_block(n):
         "baseFee": hx(b.get("baseFeePerGas", "0x0")),
         "txs": len(b.get("transactions", [])),
         "uncles": len(b.get("uncles", [])),
+        "nonce": b.get("nonce", "0x0"),
     }
 
 
@@ -178,7 +179,8 @@ def status_payload():
             sum(b["uncles"] for b in blocks) / n, 4)
         out["series"] = [
             {"n": b["number"], "d": b["difficulty"], "t": b["timestamp"],
-             "m": b["miner"], "u": b["uncles"]} for b in blocks]
+             "m": b["miner"], "u": b["uncles"], "no": b.get("nonce", "0x0")}
+            for b in blocks]
         miners = {}
         for b in blocks:
             miners[b["miner"]] = miners.get(b["miner"], 0) + 1
