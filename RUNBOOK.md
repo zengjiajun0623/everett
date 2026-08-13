@@ -443,3 +443,14 @@ the exact URL scheme its own dialect section proves broken). CI green
 on all four jobs after; sidecar redeployed live, miner reconnected in
 <1s. Lesson, again: the system was healthy — the CLAIMS had drifted.
 Audit cadence should precede every external send.
+
+Addendum (cross-model audit): Jiajun ran a DeepSeek version audit in
+parallel. It independently REPRODUCED the build (identical binary
+version string to the live peer banner), the genesis hash via geth's own
+GenesisToBlock, and all gates — the strongest third-party confirmation
+yet — and caught what our audit missed: only Docker was pinned;
+ci_prepare.sh and the WSL join cloned unpinned HEAD. Fixed in 6e37670
+(pin everywhere + drift assertion in the consistency gate) plus
+SECURITY.md for the CVE posture. Three AI systems have now audited this
+chain (Claude, Kimi, DeepSeek); each found something the others missed.
+The AI-native review thesis, demonstrated on ourselves.
