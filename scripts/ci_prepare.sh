@@ -6,8 +6,16 @@ EVERETT=$(cd "$(dirname "$0")/.." && pwd)
 WORK="$EVERETT/build"
 mkdir -p "$WORK"
 
+# Pinned to the commit every Everett gate has been verified against
+# (same pin as docker/node.Dockerfile ARG COREGETH_COMMIT; the
+# consistency gate asserts the two never diverge). Override with
+# COREGETH_COMMIT=... to track a newer upstream deliberately.
+COREGETH_COMMIT="${COREGETH_COMMIT:-10f1ea745cd89d72c398484a234cdc7fb29ecc32}"
 if [ ! -d "$WORK/core-geth" ]; then
-  git clone --depth 1 https://github.com/etclabscore/core-geth "$WORK/core-geth"
+  git init "$WORK/core-geth"
+  git -C "$WORK/core-geth" remote add origin https://github.com/etclabscore/core-geth
+  git -C "$WORK/core-geth" fetch --depth 1 origin "$COREGETH_COMMIT"
+  git -C "$WORK/core-geth" checkout FETCH_HEAD
 fi
 cd "$WORK/core-geth"
 

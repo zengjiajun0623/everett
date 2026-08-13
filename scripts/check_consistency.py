@@ -107,3 +107,20 @@ if fail:
         print("  -", f)
     sys.exit(1)
 print(f"consistency gate PASSED ({len(checks)} document checks, {len(sweep)} reward vectors)")
+
+
+# --- core-geth pin consistency (added after the DeepSeek version audit:
+# the Dockerfile was pinned but the scripts cloned unpinned HEAD, and the
+# docs claimed "pinned" — the two definitions must never diverge) -------
+import re as _re
+_ci = open(ROOT / "scripts" / "ci_prepare.sh").read()
+_df = open(ROOT / "docker" / "node.Dockerfile").read()
+_m1 = _re.search(r'COREGETH_COMMIT:-([0-9a-f]{40})', _ci)
+_m2 = _re.search(r'ARG COREGETH_COMMIT=([0-9a-f]{40})', _df)
+assert _m1 and _m2, "core-geth pin missing from ci_prepare.sh or node.Dockerfile"
+assert _m1.group(1) == _m2.group(1), (
+    f"core-geth pin drift: ci_prepare.sh={_m1.group(1)} node.Dockerfile={_m2.group(1)}")
+_j = open(ROOT / "scripts" / "join_wheeler_wsl.sh").read()
+_m3 = _re.search(r'COREGETH_COMMIT:-([0-9a-f]{40})', _j)
+assert _m3 and _m3.group(1) == _m1.group(1), "join_wheeler_wsl.sh pin drift"
+print("core-geth pin consistent across Dockerfile + scripts:", _m1.group(1)[:12])

@@ -30,7 +30,13 @@ else
   git clone -q https://github.com/zengjiajun0623/everett /root/everett
 fi
 cd /root/everett
-[ -d build/core-geth ] || git clone -q --depth 1 https://github.com/etclabscore/core-geth build/core-geth
+COREGETH_COMMIT="${COREGETH_COMMIT:-10f1ea745cd89d72c398484a234cdc7fb29ecc32}"
+if [ ! -d build/core-geth ]; then
+  git init -q build/core-geth
+  git -C build/core-geth remote add origin https://github.com/etclabscore/core-geth
+  git -C build/core-geth fetch -q --depth 1 origin "$COREGETH_COMMIT"
+  git -C build/core-geth checkout -q FETCH_HEAD
+fi
 cd build/core-geth
 if grep -q "blst v0.3.1[1-6]" go.mod; then go get github.com/supranational/blst@v0.3.17; fi
 sed -i -e '/fjl\/memsize\/memsizeui/d' -e '/var Memsize memsizeui.Handler/d' \
