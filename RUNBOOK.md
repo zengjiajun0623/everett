@@ -133,6 +133,17 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
   Mac; restart it after reboots). Package rebaked with the public enode;
   README carries permissionless join instructions. Tailscale path retired
   (kept as fallback). Jiajun mining to his own EOA (0xf3F5...CBA2).
-- Next: G6 KawPow port (P1 vendor+diff); VPS bootnode when the network
-  outgrows one laptop; block explorer; pre-v1.0 trademark sweep; 3080
-  realism pass (practical once KawPow lands).
+- 2026-08-13: **Two-miner network.** Second real node on pc3080 (WSL2,
+  distro sp1; the old Ubuntu distro was a vhdx-less corpse, unregistered).
+  Lesson encoded in scripts/join_wheeler_wsl.sh: WSL kills background VMs
+  when the launching session exits, so the node runs via a Windows
+  scheduled task (WheelerNode) executing geth in the foreground. First
+  PC-mined block: 970 (etherbase 0x2E0fA0...91f7). Full supply audit exact
+  across three accounts at 972 blocks. Fun fact: the M-series Mac mini
+  out-hashes the desktop CPU at ethash (memory bandwidth) 27:3 over the
+  last 30 blocks. Also observed: foreign nodes (mainnet geth, Polygon bor)
+  discovering us via the shared discv4 DHT and bouncing off the
+  networkid/genesis handshake, as designed.
+- Next: Justin's node (package sent; persistent watcher armed for the
+  first external peer); G6 KawPow port; VPS bootnode; block explorer;
+  pre-v1.0 trademark sweep.
