@@ -24,7 +24,11 @@ if ! /usr/local/go/bin/go version 2>/dev/null | grep -q "go1.2[2-9]\|go1.[3-9]";
 fi
 export PATH=/usr/local/go/bin:$PATH
 
-[ -d /root/everett ] || git clone -q https://github.com/zengjiajun0623/everett /root/everett
+if [ -d /root/everett ]; then
+  git -C /root/everett pull -q --ff-only
+else
+  git clone -q https://github.com/zengjiajun0623/everett /root/everett
+fi
 cd /root/everett
 [ -d build/core-geth ] || git clone -q --depth 1 https://github.com/etclabscore/core-geth build/core-geth
 cd build/core-geth
@@ -34,16 +38,32 @@ sed -i -e '/fjl\/memsize\/memsizeui/d' -e '/var Memsize memsizeui.Handler/d' \
 sed -i '/debug.Memsize.Add("node", stack)/d' cmd/geth/main.go
 cp /root/everett/client/rewards_everett.go /root/everett/client/rewards_everett_test.go params/mutations/
 cp /root/everett/client/difficulty_everett.go /root/everett/client/difficulty_everett_test.go consensus/ethash/
+cp /root/everett/client/kawpow_core.go /root/everett/client/kawpow_core_test.go consensus/ethash/
 python3 /root/everett/scripts/apply_hook.py params/mutations/rewards.go
 python3 /root/everett/scripts/apply_daa_hook.py consensus/ethash/consensus.go
+python3 /root/everett/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go
+cp /root/everett/client/kawpow_engine.go consensus/ethash/
 go test ./params/mutations/ -run TestEverett 2>&1 | tail -1
 go test ./consensus/ethash/ -run TestASERT 2>&1 | tail -1
+go test ./consensus/ethash/ -run TestKawPow -timeout 40m 2>&1 | tail -1
 make geth 2>&1 | tail -1
 GETH=/root/everett/build/core-geth/build/bin/geth
 
+# Wheeler v2 (KawPow) re-genesis 2026-08-13: v1 datadirs are a different
+# chain. Wipe on mismatch, keeping the keystore (mining account survives).
+W2HASH=abd9bac321cc9176f1a540d8cab9bea6ce27a4621aeb6199642891141d5e8934
+if [ -d /root/wheeler-data/geth/chaindata ]; then
+  GOT=$($GETH --datadir /root/wheeler-data --port 30398 --nodiscover --maxpeers 0 console --exec 'eth.getBlock(0).hash' 2>/dev/null | grep -o '[0-9a-f]\{64\}' | head -1 || true)
+  if [ "$GOT" != "$W2HASH" ]; then
+    echo "wheeler v1 datadir detected (genesis ${GOT:-unreadable}); re-initing for v2"
+    rm -rf /root/wheeler-data/geth
+  fi
+fi
 [ -d /root/wheeler-data/geth/chaindata ] || $GETH --datadir /root/wheeler-data init /root/everett/genesis-wheeler.json
 
 MINEARGS=""
+# v2 note: CPU KawPow mining (light path) is ~kH/s — near-useless. The
+# PC mines with its GPU via stratum; this node verifies and relays.
 if [ "${MINE:-0}" = "1" ]; then
   [ -f /root/wheeler-pw ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /root/wheeler-pw
   ADDR=$(ls /root/wheeler-data/keystore/ 2>/dev/null | head -1 | grep -o '[0-9a-f]\{40\}$' || true)

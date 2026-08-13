@@ -331,3 +331,39 @@ Wheeler note: the getwork transport limitation documented in
 GPU_MINING.md stands; the sidecar is now the proven mining path for the
 KawPow era. It should ship in the Docker stack as a third service before
 the Wheeler flip.
+
+## 2026-08-13 (evening): WHEELER V2 — KawPow flip executed
+
+Jiajun's call: "flip wheeler to kawpow and let justin know." Done end to
+end in one session (commit 9e1181f, CI green):
+
+- **Chain-keyed activation** (GENESIS_SPEC 5a.5 CLOSED): new hook 5 in
+  apply_kawpow_hooks.py inserts `ethash.SetKawPowChainID(chainID)` into
+  eth/backend.go once the chain config loads. Wheeler + mainnet = KawPow
+  from genesis; dev chain keeps EVERETT_KAWPOW env choice; all other
+  chain IDs forced off. Unit-tested (TestKawPowActivation). The env-var
+  era is over — consensus never depends on local environment.
+- **Re-genesis**: genesis-wheeler.json v2, extraData "EVERETT WHEELER V2
+  KAWPOW", genesis 0xabd9bac321cc9176f1a540d8cab9bea6ce27a4621aeb6199642891141d5e8934,
+  chain ID unchanged (15537392). v1 (ethash, ~4.6k blocks) retired.
+- **Bootnode identity preserved**: nodekey copied out before the datadir
+  wipe and restored — the published enode ad614b8c…@71.183.54.11:30303
+  remains valid, Justin reconfigures nothing.
+- **Mac node**: --mine --miner.threads 0 (serves work only), etherbase
+  Jiajun 0xf3F5…CBA2, kawpow-stratum on :3333 (log: build/stratum-wheeler.log),
+  3080 mines via scheduled task WheelerGPU (mine_wheeler.cmd). First v2
+  block mined 19s after the sidecar came up. Log line to look for:
+  "Everett proof-of-work selected chainID=15,537,392 kawpow=true".
+- **pc3080 WSL node**: join_wheeler_wsl.sh upgraded to ci_prepare parity
+  (KawPow files + all 5 hooks + TestKawPow gate) and auto-migrates v1
+  datadirs (genesis-hash check → wipe → re-init). Rebuilt, synced v2
+  trustlessly from the LAN bootnode (public IP hairpin doesn't work from
+  inside the LAN — use 192.168.1.172 there; the sed + schtasks /end
+  dance is in the session log). Sync/verify node; the PC's hashpower is
+  its GPU via stratum.
+- **Justin notified** on PR #1 (comment 5285009689): migration steps
+  (pull, rebuild image, wipe volume, restart), the ethminer-can't-mine-v2
+  warning, and the stratum recipe.
+
+Devnet (:8555) and its sidecar retired; second local Wheeler node (30305)
+retired. Old wheeler.log content is v1 history.
