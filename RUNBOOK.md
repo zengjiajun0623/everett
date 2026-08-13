@@ -100,6 +100,22 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
   explainer renamed; full regate after rename: 12/12 unit tests green,
   fresh devnet mining, reward audit wei-exact at 7 blocks. Explainer
   republished (same artifact URL) as rev 0.2 with the naming lore.
-- Next: G6 KawPow port scoping; multi-miner devnet (uncle-aware audit
-  scripts first); pre-v1.0 trademark/domain sweep for Everett/ETT;
-  optional 3080 realism pass.
+- 2026-08-12 late night: **GitHub repo created** (private):
+  github.com/zengjiajun0623/everett, clean two-commit history, build tree
+  excluded. G6 scoping memo committed (go-quai progpow port base verified,
+  differential-vector gate design).
+- 2026-08-13 early: **Article III.5 live-verified.** burn_audit.py upgraded
+  to uncle-aware accounting; two-miner devnet; tip-fork via
+  removePeer/addPeer produced an uncle on cycle 1; both miners' balances
+  modeled exactly (deltas 0) at 286 blocks including the R/32 uncle reward
+  and R/32 inclusion bonus. Every constitutional article with observable
+  behavior is now live-verified.
+- 2026-08-13 early: **turnkey path hardened** for "run it locally": boot
+  script now scripts the modern-Go compat fixes (blst bump, memsize
+  excision) so a fresh clone builds; chain persists across restarts
+  (RESET=1 wipes); ETHERBASE/THREADS env vars; README quickstart added.
+  Fresh-clone reproducibility gate: full pipeline from a deleted build
+  tree, result logged in the entry below.
+- Next: G6 KawPow port (P1 vendor+diff); pre-v1.0 trademark/domain sweep
+  for Everett/ETT; 3080 realism pass (practical once KawPow lands, T-Rex
+  speaks its stratum).

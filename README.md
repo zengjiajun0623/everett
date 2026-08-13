@@ -22,6 +22,33 @@ schedule with a permanent tail keeps the security budget funded forever, and
 zero premine plus a burden-of-proof-against-change amendment rule leaves no
 seed for a constituency to grow from.
 
+## Run it yourself
+
+Prerequisites: macOS or Linux with `git`, Go 1.22+ (`brew install go`), and
+Python 3. Then:
+
+```bash
+git clone https://github.com/zengjiajun0623/everett && cd everett
+ETHERBASE=0xYourAddressHere scripts/boot_devnet.sh
+```
+
+That one script clones core-geth, applies the Everett consensus patches,
+runs the unit-test gates (the build aborts if any fail), builds geth,
+initializes the genesis, and starts mining to your address. First run takes
+a few minutes (module downloads, build, ~1 GB DAG generation); after that
+your chain persists across restarts (`RESET=1` wipes it, `THREADS=n` uses
+more cores).
+
+In a second terminal, audit your own chain against the constitution:
+
+```bash
+scripts/verify_devnet.sh
+```
+
+`verify_rewards.py` recomputes Article III independently in Python and
+demands your miner balance match it wei for wei; `burn_audit.py` does full
+supply accounting including uncles (Art. III.5) and the 1559 burn (Art. IV).
+
 ## Status
 
 v0.1 draft, August 2026. A launch-in-waiting by design: the spec exists to be

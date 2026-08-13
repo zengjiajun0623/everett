@@ -46,11 +46,20 @@ head = int(rpc("eth_blockNumber", []), 16)
 bal = defaultdict(int)
 burned = 0
 txs = 0
+uncles_seen = 0
 for n in range(1, head + 1):
     b = rpc("eth_getBlockByNumber", [hex(n), True])
     miner = b["miner"].lower()
     base = int(b["baseFeePerGas"], 16)
     bal[miner] += reward(n)
+    # Article III.5: per uncle, floor(R/32) to the uncle's miner and
+    # floor(R/32) to this block's miner.
+    r32 = reward(n) // 32
+    for i in range(len(b.get("uncles", []))):
+        u = rpc("eth_getUncleByBlockNumberAndIndex", [hex(n), hex(i)])
+        bal[u["miner"].lower()] += r32
+        bal[miner] += r32
+        uncles_seen += 1
     for tx in b["transactions"]:
         rec = rpc("eth_getTransactionReceipt", [tx["hash"]])
         gas = int(rec["gasUsed"], 16)
@@ -72,7 +81,7 @@ for acct, expected in sorted(bal.items()):
         ok = False
     print(f"{status} {acct} modeled={expected} actual={actual} delta={actual-expected}")
 
-print(f"blocks={head} txs={txs} burned={burned} wei")
+print(f"blocks={head} txs={txs} uncles={uncles_seen} burned={burned} wei")
 if not ok:
     sys.exit("FAIL: account model diverges from chain state")
 if txs and burned <= 0:

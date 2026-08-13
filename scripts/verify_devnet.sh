@@ -12,5 +12,7 @@ call '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'; echo
 echo "== genesis: London active (baseFeePerGas present), no withdrawalsRoot =="
 call '{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["0x0",false]}'; echo
 
-echo "== reward audit (exact, independent recomputation) =="
-python3 "$(cd "$(dirname "$0")" && pwd)/verify_rewards.py"
+echo "== supply audit (exact, independent recomputation; uncle- and tx-aware) =="
+python3 "$(cd "$(dirname "$0")" && pwd)/burn_audit.py"
+# verify_rewards.py remains as the strict single-miner G2 gate (plus genesis
+# pinning via EXPECT_GENESIS); it intentionally fails on multi-miner chains.
