@@ -72,12 +72,15 @@ they never should have anyway).
    money. Accepted risk, documented, not engineered away. The courted ASIC
    fleet cuts both ways: stranded fleets are concentrated, and one warehouse
    may be a majority of early hashrate.
-3. **Launch difficulty estimation.** genesis.json guesses 0x100000000
-   (~330 MH/s at 13 s); genesis-dev.json uses the 0x20000 floor for CPU
-   devnets (the production guess empirically stalls a CPU miner). Arriving
-   hashpower is unknowable within orders of magnitude. ASERT bounds the
-   damage (a large overshoot recovers in ~1.6 h per DAA_MEMO v2) but a
-   pre-launch estimation exercise is still owed.
+3. **RESOLVED 2026-08-13 — launch difficulty.** See LAUNCH_DIFFICULTY.md,
+   derived from measured Wheeler v2 data (42 MH/s per 3080-class card at
+   epoch 0; ASERT absorbed a ×4,200 error in 75 live minutes).
+   Recommendation: mainnet genesis difficulty **0x40000000** (≈ two
+   3080-class cards at 13 s) — the correction asymmetry means err LOW:
+   an underestimate clears in minutes of fast blocks, an overestimate
+   stalls the chain. genesis.json still says 0x100000000; the change is
+   deliberately deferred to the v1.0 freeze so the ceremony commit
+   carries it.
 4. **Client maintenance funding.** Article V forbids the treasury that would
    otherwise fund perpetual client work, and every upstream geth CVE must be
    evaluated and ported forever. The assumed model is Bitcoin-style external

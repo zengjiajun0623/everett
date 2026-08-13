@@ -11,6 +11,7 @@
     <string>--mine</string>
     <string>--miner.threads</string><string>2</string>
     <string>--miner.etherbase</string><string>0xf3F527B70aF6012F328D3edE7fCd3F5F3Ca6CBA2</string>
+    <string>--rpc.enabledeprecatedpersonal</string>
     <string>--http</string>
     <string>--http.api</string><string>eth,net,web3,admin</string>
   </array>
