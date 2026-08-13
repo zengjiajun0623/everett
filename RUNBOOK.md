@@ -167,3 +167,35 @@ Three jobs run on every push and PR:
 Every gate has been negative-controlled: mutating KawPow's period (3→4) or
 the constitution's decay constant (993→990) makes the corresponding job
 fail, so a green run means something.
+
+## 2026-08-13 (overnight): G6 KawPow, end to end
+
+- **P1** research fleet produced G6_P1_NOTES.md (117 sourced facts): the
+  complete ProgPoW→KawPow diff, the 13 Ravencoin reference vectors, and
+  the stratum dialect spec.
+- **P2 bit-exact.** `client/kawpow_core.go` reproduces Ravencoin's vectors
+  exactly: size schedule, epoch seeds, epoch-0 cDag, smoke vector, and the
+  primary hash vectors across period and epoch boundaries. Two bugs the
+  vectors caught: KawPow needs its own seedHash (core-geth's assumes
+  30000-block ethash epochs) and its own DAG schedule (1 GiB init, 8 MiB
+  growth, 512 parents). Negative-controlled (period 3→4 fails the suite).
+- **P3** engine wiring: light verification (the node never builds a DAG),
+  full-DAG node-side mining fallback, and the work-API seed-hash fix.
+  Gated on EVERETT_KAWPOW; chain-config activation still owed before any
+  public network flips (GENESIS_SPEC 5a.5).
+- **P4** isolated devnet (chain ID 15537391, genesis-dev.json): first
+  KawPow block sealed in 3m13s on CPU, verified through the light path
+  while mined through the full path, supply audit wei-exact.
+- **P5 GPU: DONE, thesis demonstrated.** Stock kawpowminer 1.2.4 on an
+  RTX 3080 drove the chain 11 → 264 with no custom software. Two gotchas
+  cost an hour and are now documented in GPU_MINING.md: the address must
+  appear in the getwork URL or the client silently never submits, and
+  --http.vhosts must allow the miner's Host header. ASERT absorbed the
+  ~10,000x hashrate arrival smoothly (131,072 → 416,624 over 264 blocks),
+  matching the simulation. 66 uncles, all paid per Art. III.5, audit exact.
+- **CI added** (.github/workflows/ci.yml), green on GitHub: consensus unit
+  gates, a constitution-vs-implementation consistency gate born from the
+  audit's drift findings, and a devnet e2e job. All negative-controlled.
+- **Windows lesson, twice:** Windows tears down child processes when the
+  launching session exits. Both the WSL node and the GPU miner need
+  scheduled tasks (`WheelerNode`, `EverettGpuSoak`).
