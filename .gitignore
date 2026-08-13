@@ -1,0 +1,4 @@
+# build tree: core-geth clone, devnet datadirs, node logs (recreated by scripts)
+build
+*.log
+.DS_Store
