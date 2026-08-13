@@ -1,0 +1,8 @@
+# Docker build context hygiene: keep the tree that must not enter builds
+# (the build tree, dist artifacts, git metadata) out of the context.
+build
+.git
+dist/*.tar.gz
+dist/*-node-*
+*.log
+.DS_Store
