@@ -54,3 +54,17 @@ jobs:
         run: scripts/ci_prepare.sh
       - name: Boot devnet, mine, audit supply wei-exact
         run: scripts/ci_devnet.sh
+
+  formal-verification:
+    name: "Article III machine-checked (Lean 4)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install elan
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+      - name: Build proofs
+        working-directory: fv
+        run: lake build

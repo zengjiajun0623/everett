@@ -1,0 +1,5 @@
+name = "everett-fv"
+defaultTargets = ["EverettSchedule"]
+
+[[lean_lib]]
+name = "EverettSchedule"
