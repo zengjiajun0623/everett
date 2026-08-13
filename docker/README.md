@@ -13,10 +13,15 @@ script is modified by this packaging.
 ```
 docker/
 ├── node.Dockerfile      # core-geth + Everett patches, gates, build
-├── miner.Dockerfile     # ethminer v0.19.0 + CUDA 11.8, sm_86
+├── stratum.Dockerfile   # kawpow-stratum sidecar (KawPow miners connect here)
+├── miner.Dockerfile     # ethminer v0.19.0 + CUDA 11.8, sm_86 — ETHASH ONLY
 ├── run-node.sh          # container entrypoint (geth init + run)
-└── docker-compose.yml   # node + miner stack (CLI and Portainer)
+└── docker-compose.yml   # node + stratum + miner stack (CLI and Portainer)
 ```
+
+KawPow networks (Wheeler v2, mainnet): mine via the **stratum** service —
+point kawpowminer/T-Rex at `stratum+tcp://0xYourAddr@<host>:3333`. The
+ethminer image is ethash-only devnet plumbing.
 
 ## Pinned versions
 

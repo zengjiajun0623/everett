@@ -52,6 +52,27 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  stratum:
+    image: everett-stratum:local
+    build:
+      context: ..
+      dockerfile: docker/stratum.Dockerfile
+    container_name: everett-stratum
+    depends_on:
+      node:
+        condition: service_healthy
+    command: ["-node", "http://node:8545", "-listen", "0.0.0.0:3333"]
+    ports:
+      # Stratum for KawPow miners (kawpowminer/T-Rex). LAN-wide by
+      # default so GPUs on other machines can mine to your node:
+      #   kawpowminer -U -P stratum+tcp://0xYourAddr@<host>:3333
+      # (the +tcp matters: it forces the mode-0 dialect — stratum/README.md)
+      - "3333:3333"
+    restart: unless-stopped
+
+  # NOTE: the ethminer service below is ETHASH-ONLY (devnet plumbing).
+  # It cannot mine Wheeler v2 or mainnet (KawPow) — use the stratum
+  # service above with a KawPow miner instead.
   miner:
     image: everett-miner:local
     build:
