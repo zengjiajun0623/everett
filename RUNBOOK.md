@@ -367,3 +367,9 @@ end in one session (commit 9e1181f, CI green):
 
 Devnet (:8555) and its sidecar retired; second local Wheeler node (30305)
 retired. Old wheeler.log content is v1 history.
+
+Addendum 2026-08-13: Mac mini CPU-mines Wheeler symbolically (2 threads,
+~0.5% of network hashpower; --miner.threads 2 on the node). The 1 GiB
+mining DAG built in 41s and, thanks to the kpDatasetMu lock split, block
+verification never paused during the build. Dashboard tags block origin
+by nonce prefix (gpu·stratum vs mac·cpu).
