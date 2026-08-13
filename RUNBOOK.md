@@ -373,3 +373,22 @@ Addendum 2026-08-13: Mac mini CPU-mines Wheeler symbolically (2 threads,
 mining DAG built in 41s and, thanks to the kpDatasetMu lock split, block
 verification never paused during the build. Dashboard tags block origin
 by nonce prefix (gpu·stratum vs mac·cpu).
+
+## 2026-08-13 (late): ops hardening + burn proof + launch-difficulty memo
+
+Four-item sprint after the flip, all landed:
+1. launchd agents (ops/launchd/, install.sh) for node/stratum/dashboard/
+   nat-pmp — reboot-proof; migrated live without dropping the GPU miner.
+2. kawpow-stratum shipped as a Docker compose service (stratum.Dockerfile);
+   Justin notified (PR #1) — his 3090 has a one-command mining path.
+3. FIRST WHEELER TRANSACTION (block 1818, tx 0xda02e3b0…): Art IV burn
+   live-verified — 147,000 wei provably destroyed, audit exact for every
+   account including the throwaway's reward-minus-gas. Recipe: personal
+   API via --rpc.enabledeprecatedpersonal (IPC only), rotate etherbase to
+   throwaway for one block, rotate back, self-transfer.
+4. LAUNCH_DIFFICULTY.md: mainnet genesis recommendation 0x40000000 from
+   measured data; GENESIS_SPEC item 3 resolved (applied at v1.0 freeze).
+
+Remaining before an Art VIII ceremony: VPS bootnode (Jiajun's account),
+name/trademark sweep, ceremony logistics (T-30 publication, constitution
+hash into genesis extraData, difficulty change at freeze).
