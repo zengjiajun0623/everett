@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "everett-dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/dashboard/server.py"],
+      "port": 8484
+    }
+  ]
+}
