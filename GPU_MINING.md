@@ -1,5 +1,8 @@
 # Mining Everett with a GPU
 
+> **HISTORICAL NOTE 2026-08-13: the getwork experiments below led to the stratum sidecar, which is now the recommended mining transport (stratum/README.md). Kept for the gotchas and measurements.**
+
+
 Everett runs **KawPow**, the algorithm Ravencoin has used since 2020 (and
 the one Ethereum approved as EIP-1057 and never shipped). That means stock,
 unmodified GPU miners work: no custom software, no patched binaries.

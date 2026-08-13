@@ -4,9 +4,10 @@ Run an Everett node plus an external GPU miner (ethminer over RPC,
 `eth_getWork`/`eth_submitWork`) with Docker. Deploy with either the CLI or
 Portainer's GUI — the same `docker-compose.yml` serves both.
 
-The node image is built from source inside Docker and runs **both
+The node image is built from source inside Docker and runs **the
 verification gates as part of the build**: the build aborts if
-`TestEverett` (Article III schedule) or `TestASERT` (DAA) fails. No
+`TestEverett` (Article III schedule), `TestASERT` (DAA, incl. the
+exhaustive fixed-point enumeration), or `TestKawPow` fails. No
 precompiled binaries anywhere. No consensus code, genesis file, or hook
 script is modified by this packaging.
 
@@ -142,8 +143,7 @@ automatically — activation is keyed to the chain ID, no env var needed.
 Note the bundled **ethminer image is ethash-only and cannot mine
 Wheeler v2**: run the node with `MINE=1` + `MINER_THREADS=0` to serve
 work, and point a KawPow miner (kawpowminer, T-Rex) at a
-`kawpow-stratum` sidecar (`stratum/`, containerized service planned) or
-at the node's getwork URL. Wheeler v1 datadirs are incompatible: wipe
+`kawpow-stratum` sidecar (the compose stack's `stratum` service, port 3333) or at the node's getwork URL. Wheeler v1 datadirs are incompatible: wipe
 the volume and re-init.
 
 ```yaml
@@ -203,8 +203,8 @@ Portainer: the stack page shows `everett-node` (healthy) and
 Transport note: `eth_getWork` polling is fine for devnet and early Wheeler,
 but soak testing on this repo showed it churns (miner suspend/resume on
 every new head) as difficulty and block cadence rise. The stratum sidecar
-in [`stratum/`](../stratum/README.md) is the long-run transport; a
-containerized variant is planned.
+in [`stratum/`](../stratum/README.md) is the long-run transport and ships as the
+compose `stratum` service.
 
 ## Safety notes
 

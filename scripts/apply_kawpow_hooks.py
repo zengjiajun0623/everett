@@ -14,14 +14,19 @@ activation — consensus must never depend on local environment):
                   backend resolves the chain: Wheeler/mainnet = KawPow
                   from genesis, dev chain = env-selectable, anything
                   else = forced off. Plus the ethash import it needs.
+  6. MakeChain  - the same keying for the offline verifying paths
+                  (`geth import`, `geth import-history`), which build a
+                  BlockChain via cmd/utils.MakeChain without the eth
+                  backend; without this hook those paths silently fell
+                  back to the EVERETT_KAWPOW env var.
 
-Usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> [<eth/backend.go>]
+Usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> [<eth/backend.go>] [<cmd/utils/flags.go>]
 (backend.go optional for compatibility with pre-v2 build recipes; the
 CI/Docker/boot preps all pass it).
 """
 import sys
 
-CONSENSUS, SEALER, BACKEND = 0, 1, 2
+CONSENSUS, SEALER, BACKEND, FLAGS = 0, 1, 2, 3
 
 HOOKS = [
     (CONSENSUS, "kawpowVerify",
@@ -90,11 +95,19 @@ HOOKS = [
 	// to local environment. Wheeler (v2) and mainnet: KawPow from genesis.
 	ethash.SetKawPowChainID(chainConfig.GetChainID())
 """),
+    (FLAGS, "SetKawPowChainID",
+     """	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, lyra2Config, nil, false, chainDb)
+""",
+     """	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, lyra2Config, nil, false, chainDb)
+	// Everett: chain-keyed KawPow activation for the offline verifying
+	// paths (geth import / import-history) — same rule as the eth backend.
+	if evCfg, evErr := core.LoadChainConfig(chainDb, gspec); evErr == nil && evCfg != nil {
+		ethash.SetKawPowChainID(evCfg.GetChainID())
+	}
+"""),
 ]
 
-paths = [sys.argv[1], sys.argv[2]]
-if len(sys.argv) > 3:
-    paths.append(sys.argv[3])
+paths = list(sys.argv[1:5])
 for idx, marker, anchor, repl in HOOKS:
     if idx >= len(paths):
         print(f"hook {marker[:26]!r}: SKIPPED (no backend.go argument — env-var activation only)")

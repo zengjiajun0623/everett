@@ -3,9 +3,9 @@ Article III of the Everett constitution, formalized.
 
 The model below mirrors client/rewards_everett.go EXACTLY — same integer
 (floor) semantics, same constants — over unbounded ℕ, which is faithful
-because the Go implementation uses arbitrary-precision arithmetic
-(uint256 overflow is unreachable: the largest intermediate,
-(d0+tail)·92999 ≈ 1.86e23 ≈ 2^78, is far under 2^256). The Go
+because the Go implementation's fixed-width uint256 arithmetic cannot
+wrap on this schedule (largest intermediate: (d0+tail)·92999 ≈ 2^78,
+far under 2^256). The Go
 `!num.IsUint64()` branch (returns bare tail for b ≥ 2^64) is not
 modeled; `reward_terminal` proves the two definitions agree there:
 decay is zero from era 5360, so both yield exactly `tail`.

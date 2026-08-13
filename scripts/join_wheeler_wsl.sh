@@ -37,11 +37,11 @@ sed -i -e '/fjl\/memsize\/memsizeui/d' -e '/var Memsize memsizeui.Handler/d' \
   -e '/http.Handle("\/memsize\/"/d' internal/debug/flags.go
 sed -i '/debug.Memsize.Add("node", stack)/d' cmd/geth/main.go
 cp /root/everett/client/rewards_everett.go /root/everett/client/rewards_everett_test.go params/mutations/
-cp /root/everett/client/difficulty_everett.go /root/everett/client/difficulty_everett_test.go consensus/ethash/
+cp /root/everett/client/difficulty_everett.go /root/everett/client/difficulty_everett_test.go /root/everett/client/asert_enum_test.go consensus/ethash/
 cp /root/everett/client/kawpow_core.go /root/everett/client/kawpow_core_test.go consensus/ethash/
 python3 /root/everett/scripts/apply_hook.py params/mutations/rewards.go
 python3 /root/everett/scripts/apply_daa_hook.py consensus/ethash/consensus.go
-python3 /root/everett/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go
+python3 /root/everett/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go cmd/utils/flags.go
 cp /root/everett/client/kawpow_engine.go consensus/ethash/
 go test ./params/mutations/ -run TestEverett 2>&1 | tail -1
 go test ./consensus/ethash/ -run TestASERT 2>&1 | tail -1

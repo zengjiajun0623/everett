@@ -17,10 +17,11 @@ MINER_THREADS="${MINER_THREADS:-0}"
 PORT="${PORT:-30303}"
 
 # genesis-dev.json (15537391) is the canonical devnet. genesis-devnet.json
-# is LEGACY: it predates the chain-ID split and carries 15537393, the ID
-# reserved for the mainnet launch ceremony — kept only so existing stacks
-# keep working. genesis.json itself is reserved (Art. VIII); do not run it
-# casually.
+# is LEGACY: it predates the chain-ID split and carries 15537393, the
+# reserved mainnet ID. NOTE: chain-keyed activation forces KawPow ON for
+# 15537393, so legacy ethash devnet datadirs are NOT usable with current
+# binaries; re-init on genesis-dev.json or stay on a pre-flip build.
+# genesis.json itself is reserved (Art. VIII); do not run it casually.
 case "$GENESIS" in
   genesis-dev.json)     NETWORKID="${NETWORKID:-15537391}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis-devnet.json)  NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;

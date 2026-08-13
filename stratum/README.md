@@ -24,7 +24,7 @@ Node (KawPow, work API reachable):
 
 ```bash
 EVERETT_KAWPOW=1 geth --datadir <dir> --networkid <id> \
-  --mine --miner.etherbase 0xPoolPlaceholder \
+  --mine --miner.etherbase 0xYourAddress \
   --http --http.addr 127.0.0.1 --http.api eth,net,web3
 ```
 
@@ -34,10 +34,10 @@ Sidecar:
 NODE=http://127.0.0.1:8545 LISTEN=:3333 ../scripts/run_stratum.sh
 ```
 
-Miner (note `stratum://`, not `http://`, and the address is the payout):
+Miner (note `stratum+tcp://` (forces the mode-0 dialect this sidecar speaks), not `http://` and not bare `stratum://`, and the address is the payout):
 
 ```bash
-kawpowminer -U -P stratum://0xYourAddress@<sidecar-host>:3333
+kawpowminer -U -P stratum+tcp://0xYourAddress@<sidecar-host>:3333
 ```
 
 The payout address rides in the stratum username, so the node's
@@ -63,8 +63,9 @@ Implemented per `../G6_P1_NOTES.md` §4.2, cross-checked against kawpowminer's
   and its DAG from `seed`. Both come straight from `eth_getWork`.
 - `bits` is the target in Bitcoin compact form (the miner parses it with
   SetCompact); `toCompact` is unit-tested for round-trip fidelity.
-- Solo mode: share target = block target, so every accepted share is a
-  block. No vardiff.
+- Vardiff solo mode: miners receive a fixed share target (`-sharediff`,
+  default 8M) so the submission rate stays sane at any chain difficulty;
+  the node judges every forwarded share against the real block target.
 
 ## Dialect selection (RESOLVED 2026-08-13, cost one 12-minute run)
 
@@ -109,5 +110,5 @@ nonce composition) stays future work — pools need it, solo miners don't.
    Shares are acked instantly, forwards run async (max 4 in flight,
    8-second RPC timeout, drop-when-saturated).
 
-Proof: 12-minute e2e (build/STRATUM_E2E_REPORT.md), RTX 3080, ~1,000+
+Proof: 12-minute e2e (stratum/E2E_REPORT.md), RTX 3080, ~1,000+
 blocks, zero disconnects, ASERT climbing 131k → multi-M on schedule.

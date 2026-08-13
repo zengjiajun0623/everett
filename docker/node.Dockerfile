@@ -3,8 +3,9 @@
 # source with the verification gates intact. The build stage replicates
 # scripts/ci_prepare.sh EXACTLY (clone, modern-Go compat, patch copies,
 # hooks — including KawPow — then the gates and the build); any failing
-# gate fails the image build. KawPow stays inert at runtime unless
-# EVERETT_KAWPOW=1 (devnet experiments only; see client/kawpow_engine.go).
+# gate fails the image build. KawPow activation is CHAIN-KEYED at runtime
+# (Wheeler/mainnet: always on; dev chain 15537391: EVERETT_KAWPOW env
+# selects; other chains: forced off — see client/kawpow_engine.go).
 #
 # Pinned versions: golang:1.23-bookworm (build), ubuntu:24.04 (runtime),
 # core-geth pinned by COREGETH_COMMIT (the tree all Everett gates were
@@ -47,7 +48,7 @@ RUN set -eux; \
 # Step 3: drop the Everett family files into the clone (params/mutations/
 # and consensus/ethash/, exactly as ci_prepare.sh does).
 COPY client/rewards_everett.go client/rewards_everett_test.go params/mutations/
-COPY client/difficulty_everett.go client/difficulty_everett_test.go consensus/ethash/
+COPY client/difficulty_everett.go client/difficulty_everett_test.go client/asert_enum_test.go consensus/ethash/
 COPY client/kawpow_core.go client/kawpow_core_test.go consensus/ethash/
 COPY scripts/apply_hook.py scripts/apply_daa_hook.py scripts/apply_kawpow_hooks.py /src/scripts/
 
@@ -55,7 +56,7 @@ COPY scripts/apply_hook.py scripts/apply_daa_hook.py scripts/apply_kawpow_hooks.
 # AFTER the KawPow hooks, mirroring ci_prepare.sh's order.
 RUN python3 /src/scripts/apply_hook.py params/mutations/rewards.go \
  && python3 /src/scripts/apply_daa_hook.py consensus/ethash/consensus.go \
- && python3 /src/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go
+ && python3 /src/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go cmd/utils/flags.go
 COPY client/kawpow_engine.go consensus/ethash/
 
 # Step 5: verification gate 1 (schedule + DAA + KawPow). All suites MUST

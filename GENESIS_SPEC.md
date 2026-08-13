@@ -16,7 +16,7 @@
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| Algorithm | **KawPow at launch** (decided 2026-08-12); devnet runs ethash as a plumbing placeholder until the Go port lands (§5a.5) | GPU-first, ASIC-resistant (ProgPoW family, production-hardened by Ravencoin). Rationale: the idle gamer-GPU fleet (10/20/30-series cards with no AI market value) is the one hashpower pool the AI boom cannot poach; ASIC "commitment" proved illusory since the stranded fleet rents itself out via NiceHash; and in the counterfactual timeline this chain memorializes, Ethereum ships ProgPoW instead of deferring it for the Merge. |
+| Algorithm | **KawPow at launch** (decided 2026-08-12); ported, chain-keyed, and live on Wheeler v2 (§5a.5 resolved; dev chain 15537391 remains ethash-or-KawPow selectable for experiments) | GPU-first, ASIC-resistant (ProgPoW family, production-hardened by Ravencoin). Rationale: the idle gamer-GPU fleet (10/20/30-series cards with no AI market value) is the one hashpower pool the AI boom cannot poach; ASIC "commitment" proved illusory since the stranded fleet rents itself out via NiceHash; and in the counterfactual timeline this chain memorializes, Ethereum ships ProgPoW instead of deferring it for the Merge. |
 | Target block time | ~13 s | Ethash-native cadence; inherits well-tested uncle/difficulty behavior. |
 | Difficulty adjustment | **Relative ASERT, half-life 1800 s** (decision v2, see DAA_MEMO.md); difficulty bomb moot (ASERT replaces the whole formula) | Parent-only by construction. LWMA-45 was adopted first and split consensus during the second-node sync test (windowed DAAs read ancestors the batch verifier doesn't have yet). ASERT converges in 1.2-2.5 h across all four shock scenarios and cannot diverge between miner and verifier. |
 | Uncle rules | Pre-merge validity rules (max 2, depth limit); rewards per Constitution Art. III.5: flat `R/32` per uncle (ETC Era-2 style), NOT pre-merge's depth-scaled payouts | Validity unchanged from pre-merge; reward amounts are constitutional and differ from pre-merge Ethereum's. |
@@ -147,5 +147,5 @@ including a 1559 burn; two-node trustless sync from genesis).
    is carried inside the constitution text (Art. VIII.3) and committed
    through the single hash. Zeros stand in until the v1.0 freeze.
 3. Genesis state: empty. No balances, no contracts.
-4. Anyone with an ethash miner and the client participates from block 1.
+4. Anyone with a KawPow miner (stock kawpowminer/T-Rex via the stratum sidecar) and the client participates from block 1.
    The authors of this document hold no advantage beyond conviction.

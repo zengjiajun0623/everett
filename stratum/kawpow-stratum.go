@@ -202,7 +202,7 @@ func pollWork() {
 			}
 			mu.Unlock()
 			for _, c := range snapshot {
-				c.sendJob(w, true)
+				go c.sendJob(w, true)
 			}
 			log.Printf("new job %s height=%d target=%s...", w.jobID, w.height, w.target[:16])
 			time.Sleep(*poll)
@@ -234,10 +234,14 @@ type respMsg struct {
 
 func (c *client) send(m interface{}) {
 	c.writeMu.Lock()
+	// A miner that stops reading must never stall the sidecar: bound every
+	// write, and on failure close the connection so the read loop reaps it.
+	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	err := c.enc.Encode(m)
 	c.writeMu.Unlock()
 	if err != nil {
-		log.Printf("write to %s failed: %v", c.conn.RemoteAddr(), err)
+		log.Printf("write to %s failed, dropping client: %v", c.conn.RemoteAddr(), err)
+		c.conn.Close()
 	}
 }
 
@@ -288,10 +292,11 @@ func handle(conn net.Conn) {
 			}
 			c.send(respMsg{ID: m.ID, Result: true})
 			mu.Lock()
-			if current != nil {
-				c.sendJob(current, true)
-			}
+			w := current
 			mu.Unlock()
+			if w != nil {
+				c.sendJob(w, true)
+			}
 		case "mining.submit":
 			c.send(respMsg{ID: m.ID, Result: c.submit(m.Params)})
 		case "eth_submitHashrate", "mining.extranonce.subscribe":
@@ -398,6 +403,8 @@ func main() {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			log.Printf("accept error: %v", err)
+			time.Sleep(200 * time.Millisecond)
 			continue
 		}
 		go handle(conn)

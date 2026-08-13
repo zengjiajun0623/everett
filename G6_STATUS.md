@@ -1,5 +1,8 @@
 # G6 (KawPow) status
 
+> **SUPERSEDED 2026-08-13: everything below is a historical snapshot from before the Wheeler v2 flip. The KawPow port shipped chain-keyed, the stratum sidecar is live-proven (stratum/E2E_REPORT.md), and Wheeler v2 runs KawPow from genesis. Current state: README.md and RUNBOOK.md.**
+
+
 Phases from G6_KAWPOW_SCOPING.md, with what is proven and how.
 
 | Phase | State | Evidence |

@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/core-geth
-          key: core-geth-${{ hashFiles('scripts/boot_devnet.sh') }}
+          key: core-geth-${{ hashFiles('scripts/ci_prepare.sh', 'scripts/apply_hook.py', 'scripts/apply_daa_hook.py', 'scripts/apply_kawpow_hooks.py') }}
       - name: Prepare patched core-geth
         run: scripts/ci_prepare.sh
       - name: Article III schedule vectors
@@ -68,3 +68,5 @@ jobs:
       - name: Build proofs
         working-directory: fv
         run: lake build
+      - name: Enforce zero sorries (lake treats sorry as a warning)
+        run: "! grep -rn 'sorry' fv/*.lean"
