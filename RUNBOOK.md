@@ -392,3 +392,35 @@ Four-item sprint after the flip, all landed:
 Remaining before an Art VIII ceremony: VPS bootnode (Jiajun's account),
 name/trademark sweep, ceremony logistics (T-30 publication, constitution
 hash into genesis extraData, difficulty change at freeze).
+
+## 2026-08-13 (night): formal verification tier — machine-checked constitution
+
+Jiajun's call: "shall we formally verify our implementation on the geth
+client?" Scoped to our consensus delta (verifying geth wholesale is a
+research program, and our risk lives in the delta anyway).
+
+1. ASERT fixed-point layer: proven by COMPLETE ENUMERATION over its
+   finite domain (client/asert_enum_test.go, runs inside the standard
+   TestASERT gates, ~10ms). First run falsified my own assumed error
+   bound — true max relative error 0.0105%, matching aserti3-2d's
+   documented ~0.013%; monotonicity, factor range, floor all hold at
+   every one of 131,073 exponents.
+2. Article III in Lean 4 (fv/EverettSchedule.lean, core Lean only, zero
+   sorries): decay envelope + strict decrease + zero-absorption; THE
+   SUPPLY THEOREM via an era-budget invariant — base-reward issuance
+   through any height ≤ 0.2·B + eraLen·d0·1000/7 (~25.71M ETT decay
+   component, ~28.93M under the 9/8 uncle multiplier, both proven);
+   decay dead at era 5360 → from block 536,000,000 every reward is
+   EXACTLY 0.2 ETT (terminal state is a dated fact); rewards never rise
+   post-slow-start. Eight native_decide anchors pin the model to the
+   Go/Python vectors — three independent implementations, one
+   machine-checked spec.
+3. Kimi adversarial review (house gate) found 6 real findings — a
+   summation gap, an undischarged premise, the uncle channel, a
+   README ×100000 slip, two comment inaccuracies. ALL closed as
+   theorems or corrections; review log in fv/README.md.
+4. CI: formal-verification job (elan + lake build) gates every push.
+
+KawPow needs no new apparatus: differential vectors vs the Ravencoin
+reference in the gates, plus every live block is a cross-implementation
+check (kawpowminer's full-DAG path vs our light verify).
