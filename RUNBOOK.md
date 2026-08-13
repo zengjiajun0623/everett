@@ -424,3 +424,22 @@ research program, and our risk lives in the delta anyway).
 KawPow needs no new apparatus: differential vectors vs the Ravencoin
 reference in the gates, plus every live block is a cross-implementation
 check (kawpowminer's full-DAG path vs our light verify).
+
+## 2026-08-13 (midnight): full audit before the Vitalik send — 26 findings, all resolved
+
+Jiajun: "should you run a complete review/audit to see if there's
+anything break?" Six-lens adversarial workflow (41 agents) over the
+day's commits + live-system sweep. Live systems: all green. Repo: 26
+confirmed findings, 8 blockers — fixed in e0d9241 (full inventory in
+that commit message). Highlights: the enumeration proofs ran NOWHERE
+despite front-page claims (every prep copied every test file except the
+new one); boot_devnet built a KawPow-free geth (prep now unified on
+ci_prepare, "never fork the prep again"); two sidecar wedge bugs
+(blocking writes under the global lock — deadlines + culling +
+concurrent broadcasts now); a committed 8.6MB binary under the
+"no prebuilt binaries" claim; hook 6 chain-keys `geth import`; a dozen
+claims updated to match the code (incl. the stratum README recommending
+the exact URL scheme its own dialect section proves broken). CI green
+on all four jobs after; sidecar redeployed live, miner reconnected in
+<1s. Lesson, again: the system was healthy — the CLAIMS had drifted.
+Audit cadence should precede every external send.
