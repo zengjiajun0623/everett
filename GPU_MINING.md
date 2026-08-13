@@ -63,3 +63,26 @@ ASERT absorbing a roughly four-orders-of-magnitude hashrate arrival exactly
 as simulated in DAA_MEMO.md: a smooth exponential climb, no oscillation, no
 stall. The supply audit stayed wei-exact throughout (264 blocks, 66 uncles,
 every account matching Article III including the III.5 uncle terms).
+
+## Transport finding: getwork proves it, stratum is needed to run it
+
+The run above used geth's built-in getwork API. It works, and it is the
+fastest way to prove the algorithm end to end, but it is not the production
+transport:
+
+- ethminer-family getwork clients poll by opening a fresh HTTP/1.0
+  connection per request. Each cycle logs `Disconnected → Suspend mining →
+  Established → Resume mining`. Over the soak run that was **936 suspend
+  cycles**, so the GPU mines in fits rather than continuously.
+- At low difficulty this is invisible (the chain advanced 11 → 264 in
+  minutes). As ASERT raised difficulty ~30x, the share of each cycle spent
+  actually hashing became the limit and block production stalled around
+  difficulty 4M, with 1,621 solutions found but many of them for jobs that
+  had already gone stale.
+
+So: **getwork for demonstration and solo experiments, stratum for real
+mining.** The stratum dialect kawpowminer/T-Rex expect is fully specified
+in G6_P1_NOTES.md §4 (message shapes, extranonce discipline, the
+consensus-critical `height` field, share validation), including which
+open-source proxies are worth adapting. Building that sidecar is the next
+G6 task; the algorithm underneath it is already proven.
