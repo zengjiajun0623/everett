@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
-"""Idempotently hook KawPow into core-geth's verifySeal and mine paths.
+"""Idempotently hook KawPow into core-geth's consensus, sealer, and work API.
 
-Both hooks branch on kawpowEnabled and fall through to stock ethash
-otherwise, so an unpatched-behaviour node is exactly stock geth.
+Four hooks, each branching on kawpowEnabled and falling through to stock
+ethash otherwise:
+  1. verifySeal - light KawPow verification (miners own the DAG)
+  2. mine       - lazy DAG (skip the ethash one when KawPow is active)
+  3. mine loop  - full-DAG KawPow hashing for node-side CPU mining
+  4. makeWork   - the KawPow seed hash for remote (GPU) miners; with the
+                  ethash seed they build the wrong DAG and every share is
+                  rejected.
 """
 import sys
 
-VERIFY_ANCHOR = """	// Recompute the digest and PoW values
+CONSENSUS, SEALER = 0, 1
+
+HOOKS = [
+    (CONSENSUS, "kawpowVerify",
+     """	// Recompute the digest and PoW values
 	number := header.Number.Uint64()
-"""
-VERIFY_HOOK = """	// Recompute the digest and PoW values
+""",
+     """	// Recompute the digest and PoW values
 	number := header.Number.Uint64()
 
 	// Everett: KawPow verification is light-only (miners own the DAG).
@@ -24,44 +34,42 @@ VERIFY_HOOK = """	// Recompute the digest and PoW values
 		}
 		return nil
 	}
-"""
-
-MINE_ANCHOR = """		number  = header.Number.Uint64()
+"""),
+    (SEALER, "dataset *dataset",
+     """		number  = header.Number.Uint64()
 		dataset = ethash.dataset(number, false)
-	)"""
-MINE_HOOK = """		number  = header.Number.Uint64()
+	)""",
+     """		number  = header.Number.Uint64()
 		dataset *dataset
 	)
-	// Everett: KawPow mines from the light cache; no DAG is ever built here.
+	// Everett: KawPow builds its own DAG lazily; skip the ethash one.
 	if !kawpowEnabled {
 		dataset = ethash.dataset(number, false)
-	}"""
-
-MINE_HASH_ANCHOR = """			digest, result := hashimotoFull(dataset.dataset, hash, nonce)"""
-MINE_HASH_HOOK = """			var digest, result []byte
+	}"""),
+    (SEALER, "kawpowComputeFull",
+     """			digest, result := hashimotoFull(dataset.dataset, hash, nonce)""",
+     """			var digest, result []byte
 			if kawpowEnabled {
 				digest, result = kawpowComputeFull(hash, nonce, number)
 			} else {
 				digest, result = hashimotoFull(dataset.dataset, hash, nonce)
-			}"""
+			}"""),
+    (SEALER, "kawpowSeedHash(block.NumberU64()",
+     """	s.currentWork[1] = common.BytesToHash(SeedHash(epoch, epochLength)).Hex()""",
+     """	if kawpowEnabled {
+		s.currentWork[1] = common.BytesToHash(kawpowSeedHash(block.NumberU64() / kawpowEpochLength)).Hex()
+	} else {
+		s.currentWork[1] = common.BytesToHash(SeedHash(epoch, epochLength)).Hex()
+	}"""),
+]
 
-consensus_path, sealer_path = sys.argv[1], sys.argv[2]
-
-src = open(consensus_path).read()
-if "kawpowVerify" in src:
-    print("verify hook already present")
-else:
-    if VERIFY_ANCHOR not in src:
-        sys.exit("FAIL: verifySeal anchor not found")
-    open(consensus_path, "w").write(src.replace(VERIFY_ANCHOR, VERIFY_HOOK, 1))
-    print("verify hook inserted")
-
-src = open(sealer_path).read()
-if "kawpowCompute" in src:
-    print("mine hook already present")
-    sys.exit(0)
-if MINE_ANCHOR not in src or MINE_HASH_ANCHOR not in src:
-    sys.exit("FAIL: mine anchors not found")
-src = src.replace(MINE_ANCHOR, MINE_HOOK, 1).replace(MINE_HASH_ANCHOR, MINE_HASH_HOOK, 1)
-open(sealer_path, "w").write(src)
-print("mine hook inserted")
+paths = [sys.argv[1], sys.argv[2]]
+for idx, marker, anchor, repl in HOOKS:
+    src = open(paths[idx]).read()
+    if marker in src:
+        print(f"hook {marker[:26]!r}: already present")
+        continue
+    if anchor not in src:
+        sys.exit(f"FAIL: anchor for {marker!r} not found in {paths[idx]}; upstream changed")
+    open(paths[idx], "w").write(src.replace(anchor, repl, 1))
+    print(f"hook {marker[:26]!r}: inserted")
