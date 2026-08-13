@@ -1,0 +1,81 @@
+# Everett devnet stack: node + external GPU miner.
+# Works with `docker compose up -d --build` and with Portainer stacks
+# (custom-paste and git-repo modes) - see docker/README.md for the GUI
+# walkthrough and the environment variable table.
+#
+# Default: DEVNET (genesis-devnet.json, chain ID 15537393, --nodiscover,
+# throwaway etherbase, zero CPU mining threads - work is served to the GPU
+# miner over the internal network only).
+#
+# For Wheeler (testnet, chain ID 15537392) set:
+#   GENESIS:   genesis-wheeler.json
+#   BOOTNODE:  enode://...@host:30303
+# and publish 30303 if you want inbound peers (uncomment below).
+
+name: everett
+
+services:
+  node:
+    image: everett-node:local
+    build:
+      context: ..
+      dockerfile: docker/node.Dockerfile
+    container_name: everett-node
+    environment:
+      # genesis-devnet.json | genesis-wheeler.json | genesis.json (reserved)
+      GENESIS: genesis-devnet.json
+      MINE: "1"
+      # Throwaway devnet address; replace with your own EOA to keep coins.
+      ETHERBASE: "0x1000000000000000000000000000000000000001"
+      MINER_THREADS: "0"
+      # NETWORKID: 15537393   # auto-derived from GENESIS when unset
+      # BOOTNODE: ""          # set for Wheeler; --nodiscover when unset
+    ports:
+      # RPC: localhost only on the host. Never publish to 0.0.0.0.
+      - "127.0.0.1:8545:8545"
+      # Optional: P2P inbound (needed for Wheeler). Enable with 0.0.0.0 for
+      # public peers; keep 127.0.0.1 for a private node.
+      # - "127.0.0.1:30303:30303/tcp"
+      # - "127.0.0.1:30303:30303/udp"
+    volumes:
+      - /opt/docker/everett-node:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-X", "POST", "-H", "Content-Type: application/json",
+             "--data", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}",
+             "http://127.0.0.1:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  miner:
+    image: everett-miner:local
+    build:
+      context: ..
+      dockerfile: docker/miner.Dockerfile
+    container_name: everett-miner
+    depends_on:
+      node:
+        condition: service_healthy
+    # Work fetched from the node over RPC (eth_getWork/eth_submitWork).
+    # --cuda-devices: "0" on a single-GPU host; "0 1" etc. for more.
+    command: ["-U", "-P", "http://node:8545", "--cuda-devices", "0", "-v", "1"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      # Persist the ethash cache across restarts.
+      - /opt/docker/everett-miner:/root/.ethash
+    restart: unless-stopped
+
+# Private bridge shared by node and miner; nothing exposed on the host from
+# the miner.
+networks:
+  default:
+    name: everett-int
+    driver: bridge
