@@ -1,13 +1,16 @@
-# Everett Node
+# __NETNAME__ node (Everett family)
 
-Ethereum's Everett branch: the counterfactual PoW chain where the Merge was
-never the plan. Chain ID 15537393 (mainnet's last proof-of-work block).
-Constitution and source: https://github.com/zengjiajun0623/everett
+Everett is Ethereum's counterfactual branch: the PoW chain where the Merge
+was never the plan. This package runs the **__NETNAME__** network
+(chain ID __NETWORKID__). Wheeler is the testnet, named for John Wheeler,
+Everett's doctoral advisor; its coins are valueless by intent, and it runs
+the exact consensus rules mainnet will. Constitution and source:
+https://github.com/zengjiajun0623/everett
 
 ## Run
 
 ```bash
-tar xzf everett-node-*.tar.gz && cd everett-node-*
+tar xzf __NETNAME__-node-*.tar.gz && cd __NETNAME__-node-*
 ./run-node.sh                      # join and sync (trustlessly, from genesis)
 ```
 
@@ -17,7 +20,7 @@ To mine:
 MINE=1 ETHERBASE=0xYourAddress ./run-node.sh
 ```
 
-Your node verifies the entire chain from the genesis block using nothing but
+Your node verifies the whole chain from the genesis block using nothing but
 this package's genesis file: no checkpoints, no trusted snapshots. First
 mining run generates a ~1 GB DAG (a few minutes).
 
@@ -29,9 +32,8 @@ curl -s -X POST -H 'Content-Type: application/json' \
   http://127.0.0.1:8545
 ```
 
-If the bootnode in run-node.sh is unreachable, get a fresh
-`enode://...` from whoever sent you this and pass it as
-`BOOTNODE=enode://... ./run-node.sh`.
+If the baked-in bootnode is unreachable, get a fresh `enode://...` from
+whoever sent you this and pass it as `BOOTNODE=enode://... ./run-node.sh`.
 
 This binary is macOS/arm64; other platforms build from the repo in about
 five minutes (`scripts/boot_devnet.sh`).

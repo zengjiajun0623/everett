@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Idempotently insert the Everett router hook into params/mutations/rewards.go."""
+"""Idempotently insert the Everett-family router hook into params/mutations/rewards.go."""
 import sys
 
-HOOK = """	if id := config.GetChainID(); id != nil && id.Uint64() == everettChainID {
+HOOK = """	if id := config.GetChainID(); id != nil && isEverettFamily(id.Uint64()) {
 		return everettRewards(header, uncles)
 	}
 """
@@ -10,9 +10,11 @@ ANCHOR = "func GetRewards(config ctypes.ChainConfigurator, header *types.Header,
 
 path = sys.argv[1]
 src = open(path).read()
-if "everettChainID" in src:
+if "isEverettFamily" in src:
     print("hook already present, nothing to do")
     sys.exit(0)
+if "everettChainID" in src:
+    sys.exit("FAIL: outdated hook present; delete build/core-geth and re-run for a clean clone")
 if ANCHOR not in src:
     sys.exit("FAIL: GetRewards anchor not found; upstream changed, hook manually")
 open(path, "w").write(src.replace(ANCHOR, ANCHOR + HOOK, 1))

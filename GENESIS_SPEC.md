@@ -90,6 +90,13 @@ they never should have anyway).
    EncryptoTel, is dead and unlisted). Full trademark/domain/handle sweep
    owed before the v1.0 freeze.
 
+## 5b. Networks
+
+| Network | Chain ID | Genesis | Purpose |
+|---|---|---|---|
+| **Everett** (mainnet) | 15537393 · mainnet's last PoW block | genesis.json · empty extraData until the v1.0 freeze commits the constitution hash | Reserved for the Article VIII launch ceremony. Do not start it casually. |
+| **Wheeler** (testnet) | 15537392 · the penultimate PoW block, the rehearsal | genesis-wheeler.json · extraData tags "EVERETT WHEELER TESTNET", distinct genesis hash | Named for John Wheeler, Everett's advisor. Identical consensus rules via the family hooks; coins valueless by intent. Live 2026-08-13. |
+
 ## 5a. Client patches (delta from stock core-geth)
 
 The monetary constitution lives in client code, not genesis config. Status

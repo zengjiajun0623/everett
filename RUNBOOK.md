@@ -116,6 +116,15 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
   (RESET=1 wipes); ETHERBASE/THREADS env vars; README quickstart added.
   Fresh-clone reproducibility gate: full pipeline from a deleted build
   tree, result logged in the entry below.
-- Next: G6 KawPow port (P1 vendor+diff); pre-v1.0 trademark/domain sweep
-  for Everett/ETT; 3080 realism pass (practical once KawPow lands, T-Rex
-  speaks its stratum).
+- 2026-08-13: **Wheeler testnet live** (chain ID 15537392, distinct genesis
+  753626..169c4d via tagged extraData). Family hooks (isEverettFamily) give
+  Wheeler identical consensus rules; audit passes under the testnet ID.
+  Parametrized dist tooling (NET=wheeler|everett make_dist.sh); Wheeler
+  package sim-verified (synced to head via bootnode discovery). Bootnode
+  currently LAN; Tailscale installed, awaiting login: then rebake with
+  `NET=wheeler BOOTNODE=enode://<key>@<ts-ip>:30303 scripts/make_dist.sh`
+  (key in dist/wheeler-bootnode.txt). Mainnet chain ID 15537393 reserved
+  for the Art. VIII ceremony: never start it casually.
+- Next: Tailscale login → rebake Wheeler package → send to Justin; G6
+  KawPow port (P1 vendor+diff); pre-v1.0 trademark/domain sweep; 3080
+  realism pass (practical once KawPow lands).

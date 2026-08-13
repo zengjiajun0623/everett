@@ -18,10 +18,18 @@ import (
 )
 
 const (
-	everettChainID   uint64 = 15537393
+	everettChainID   uint64 = 15537393 // mainnet: reserved for the Art. VIII launch
+	wheelerChainID   uint64 = 15537392 // Wheeler testnet: the penultimate PoW block
 	everettEraLength uint64 = 100_000
 	everettSlowStart uint64 = 93_000
 )
+
+// isEverettFamily reports whether a chain ID runs the Everett consensus
+// rules. Wheeler (the testnet, named for Everett's advisor) runs identical
+// rules so it rehearses exactly what mainnet will do.
+func isEverettFamily(id uint64) bool {
+	return id == everettChainID || id == wheelerChainID
+}
 
 var (
 	everettTail   = uint256.NewInt(200_000_000_000_000_000)   // 0.2 ETT
