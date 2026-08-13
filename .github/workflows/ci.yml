@@ -1,0 +1,56 @@
+name: everett-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  consensus-tests:
+    name: consensus unit gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Cache core-geth build tree
+        uses: actions/cache@v4
+        with:
+          path: build/core-geth
+          key: core-geth-${{ hashFiles('scripts/boot_devnet.sh') }}
+      - name: Prepare patched core-geth
+        run: scripts/ci_prepare.sh
+      - name: Article III schedule vectors
+        run: cd build/core-geth && go test ./params/mutations/ -run TestEverett -v
+      - name: ASERT difficulty vectors (incl. sync-determinism regression)
+        run: cd build/core-geth && go test ./consensus/ethash/ -run TestASERT -v
+      - name: KawPow differential vectors (Ravencoin reference)
+        run: cd build/core-geth && go test ./consensus/ethash/ -run TestKawPow -v -timeout 40m
+
+  constitution-consistency:
+    name: constitution vs implementation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Article III parameters agree across constitution, spec, and code
+        run: python3 scripts/check_consistency.py
+
+  devnet-e2e:
+    name: devnet end-to-end (mine + audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Prepare patched core-geth
+        run: scripts/ci_prepare.sh
+      - name: Boot devnet, mine, audit supply wei-exact
+        run: scripts/ci_devnet.sh

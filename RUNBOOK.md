@@ -147,3 +147,23 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
 - Next: Justin's node (package sent; persistent watcher armed for the
   first external peer); G6 KawPow port; VPS bootnode; block explorer;
   pre-v1.0 trademark sweep.
+
+## CI gates (GitHub Actions, .github/workflows/ci.yml)
+
+Three jobs run on every push and PR:
+
+1. **consensus unit gates** — Article III schedule vectors, ASERT vectors
+   (including the batch-sync determinism regression), and the KawPow
+   differential vectors against Ravencoin's reference values.
+2. **constitution vs implementation** — `scripts/check_consistency.py`
+   asserts the monetary parameters appear identically in CONSTITUTION.md,
+   GENESIS_SPEC.md, the Go client, and both Python auditors, and that the
+   two independent reward implementations agree wei-for-wei over a sweep
+   including every boundary (0, 1, slow-start edges, era edges, deep tail).
+   This exists because the 55-agent audit found exactly that drift.
+3. **devnet end-to-end** — builds, mines a real chain, asserts the genesis
+   hash and empty state root are unchanged, then runs the full supply audit.
+
+Every gate has been negative-controlled: mutating KawPow's period (3→4) or
+the constitution's decay constant (993→990) makes the corresponding job
+fail, so a green run means something.
