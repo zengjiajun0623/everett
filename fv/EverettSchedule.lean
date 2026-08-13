@@ -4,8 +4,11 @@ Article III of the Everett constitution, formalized.
 The model below mirrors client/rewards_everett.go EXACTLY — same integer
 (floor) semantics, same constants — over unbounded ℕ, which is faithful
 because the Go implementation uses arbitrary-precision arithmetic
-(uint256 overflow is unreachable: values stay below 2^61 wei… ×993
-stays far under 2^256; see rewards_everett.go).
+(uint256 overflow is unreachable: the largest intermediate,
+(d0+tail)·92999 ≈ 1.86e23 ≈ 2^78, is far under 2^256). The Go
+`!num.IsUint64()` branch (returns bare tail for b ≥ 2^64) is not
+modeled; `reward_terminal` proves the two definitions agree there:
+decay is zero from era 5360, so both yield exactly `tail`.
 
 Everything is proven with core Lean 4 only (no mathlib): the arguments
 are finite ℕ arithmetic and induction, as a monetary constitution's
@@ -215,5 +218,179 @@ example : reward 93000 = 2000000000000000000 := by native_decide
 example : reward 100000 = 1987400000000000000 := by native_decide
 example : decay 1 = 1787400000000000000 := by native_decide
 example : decay 100 = 891656037640534722 := by native_decide
+
+
+/-! ### Kimi-review completions (2026-08-13): the premise, the summation
+    link, and the uncle channel — closing the gaps between what the
+    comments claimed and what the machine checks. -/
+
+/-- Decay is dead by era 5360 (first zero, computed and machine-checked). -/
+theorem decay_dies : decay 5360 = 0 := by native_decide
+
+/-- …and stays dead forever. -/
+theorem decay_zero_forever (n : Nat) (h : 5360 ≤ n) : decay n = 0 := by
+  induction n with
+  | zero => exact absurd h (by decide)
+  | succ k ih =>
+    cases Nat.lt_or_ge 5360 (k + 1) with
+    | inl hlt =>
+      have hk : 5360 ≤ k := Nat.le_of_lt_succ hlt
+      exact decay_zero_stable k (ih hk)
+    | inr hge =>
+      have : k + 1 = 5360 := Nat.le_antisymm hge h
+      rw [this]; exact decay_dies
+
+/-- THE TERMINAL STATE, unconditionally: from block 536,000,000 on, every
+    reward is exactly the 0.2 ETT tail. The "asymptotic promise" of
+    Art. III is a concrete, dated fact. -/
+theorem reward_terminal (b : Nat) (h : 536000000 ≤ b) : reward b = tail := by
+  have hs : slowStart ≤ b := Nat.le_trans (by decide) h
+  have he : 5360 ≤ b / eraLen := by
+    have := Nat.div_le_div_right (c := eraLen) h
+    calc 5360 = 536000000 / eraLen := by decide
+      _ ≤ b / eraLen := this
+  exact reward_eventually_tail b hs (decay_zero_forever _ he)
+
+/-- Monotone across any era gap. -/
+theorem decay_le_of_le {n m : Nat} (h : n ≤ m) : decay m ≤ decay n := by
+  induction m with
+  | zero => cases Nat.le_zero.mp h; exact Nat.le_refl _
+  | succ k ih =>
+    cases Nat.lt_or_ge n (k + 1) with
+    | inl hlt => exact Nat.le_trans (decay_mono k) (ih (Nat.le_of_lt_succ hlt))
+    | inr hge => have : n = k + 1 := Nat.le_antisymm h hge
+                 rw [this]; exact Nat.le_refl _
+
+/-- After the slow-start window, rewards never rise again. -/
+theorem reward_mono_after_slowstart (b : Nat) (h : slowStart ≤ b) :
+    reward (b + 1) ≤ reward b := by
+  have h0 : b ≠ 0 := by intro hb; rw [hb] at h; exact absurd h (by decide)
+  have h1 : b + 1 ≠ 0 := Nat.succ_ne_zero b
+  have hnb : ¬ b < slowStart := Nat.not_lt.mpr h
+  have hnb1 : ¬ b + 1 < slowStart := Nat.not_lt.mpr (Nat.le_succ_of_le h)
+  unfold reward
+  simp only [h0, h1, hnb, hnb1, if_false]
+  exact Nat.add_le_add_right
+    (decay_le_of_le (Nat.div_le_div_right (Nat.le_succ b))) _
+
+/-- Uniform per-block bound feeding the issuance induction. -/
+theorem reward_le_era (b : Nat) : reward b ≤ decay (b / eraLen) + tail := by
+  by_cases h0 : b = 0
+  · rw [h0, reward_zero]; exact Nat.zero_le _
+  · by_cases hs : b < slowStart
+    · exact reward_slowstart_le b hs h0
+    · unfold reward; simp [h0, hs]
+
+/-- Cumulative base-reward issuance through block B. -/
+def issued : Nat → Nat
+  | 0 => reward 0
+  | b + 1 => issued b + reward (b + 1)
+
+/-- The era-budget invariant: at any height, issuance so far PLUS the
+    full budget of the era's remaining blocks stays within
+    tail·B + eraLen·(Σ decay through the current era). Each era's
+    100000·decay(e) is allocated on entry and consumed at most
+    decay(e) per block — the summation link the review demanded. -/
+theorem issued_invariant (B : Nat) :
+    issued B + (eraLen - 1 - B % eraLen) * decay (B / eraLen)
+      ≤ tail * B + eraLen * decaySum (B / eraLen) := by
+  induction B with
+  | zero =>
+    have h1 : issued 0 = 0 := rfl
+    have h2 : decaySum 0 = decay 0 := rfl
+    have h3 : (0 : Nat) % eraLen = 0 := rfl
+    have h4 : (0 : Nat) / eraLen = 0 := rfl
+    rw [h1, h3, h4, h2]
+    show 0 + (eraLen - 1 - 0) * decay 0 ≤ tail * 0 + eraLen * decay 0
+    have : eraLen - 1 - 0 ≤ eraLen := by decide
+    calc 0 + (eraLen - 1 - 0) * decay 0
+        = (eraLen - 1 - 0) * decay 0 := Nat.zero_add _
+      _ ≤ eraLen * decay 0 := Nat.mul_le_mul_right _ this
+      _ = tail * 0 + eraLen * decay 0 := by rw [Nat.mul_zero, Nat.zero_add]
+  | succ b ih =>
+    have hr := reward_le_era (b + 1)
+    have hiss : issued (b + 1) = issued b + reward (b + 1) := rfl
+    by_cases hb : b % eraLen = eraLen - 1
+    · -- era boundary: (b+1) enters era e+1, decaySum grows by decay (e+1)
+      have hdiv : (b + 1) / eraLen = b / eraLen + 1 := by
+        unfold eraLen at hb ⊢; omega
+      have hmod : (b + 1) % eraLen = 0 := by
+        unfold eraLen at hb ⊢; omega
+      have hds : decaySum (b / eraLen + 1)
+          = decaySum (b / eraLen) + decay (b / eraLen + 1) := rfl
+      rw [hiss, hdiv, hmod, hds]
+      rw [hdiv] at hr
+      have ht : tail * (b + 1) = tail * b + tail := Nat.mul_succ tail b
+      have hzero : (eraLen - 1 - b % eraLen) * decay (b / eraLen) = 0 := by
+        rw [hb, Nat.sub_self, Nat.zero_mul]
+      have hsplit : eraLen * (decaySum (b / eraLen) + decay (b / eraLen + 1))
+          = eraLen * decaySum (b / eraLen) + eraLen * decay (b / eraLen + 1) :=
+        Nat.mul_add _ _ _
+      have hEmul : eraLen * decay (b / eraLen + 1)
+          = (eraLen - 1 - 0) * decay (b / eraLen + 1) + decay (b / eraLen + 1) := by
+        unfold eraLen; omega
+      omega
+    · -- interior: same era, position advances
+      have hdiv : (b + 1) / eraLen = b / eraLen := by
+        unfold eraLen at hb ⊢; omega
+      have hmod : (b + 1) % eraLen = b % eraLen + 1 := by
+        unfold eraLen at hb ⊢; omega
+      rw [hiss, hdiv, hmod]
+      rw [hdiv] at hr
+      have hpos : b % eraLen < eraLen - 1 := by
+        unfold eraLen at hb ⊢; omega
+      -- position term drops by exactly one decay(e); reward consumes ≤ one
+      have : (eraLen - 1 - b % eraLen) * decay (b / eraLen)
+          = (eraLen - 1 - (b % eraLen + 1)) * decay (b / eraLen)
+            + decay (b / eraLen) := by
+        have : eraLen - 1 - b % eraLen
+            = (eraLen - 1 - (b % eraLen + 1)) + 1 := by
+          unfold eraLen at hpos ⊢; omega
+        rw [this, Nat.succ_mul]
+      have ht : tail * (b + 1) = tail * b + tail := Nat.mul_succ tail b
+      omega
+
+/-- Base-reward issuance bound at every height. -/
+theorem issued_le (B : Nat) :
+    issued B ≤ tail * B + eraLen * decaySum (B / eraLen) :=
+  Nat.le_trans (Nat.le_add_right _ _) (issued_invariant B)
+
+/-- THE SUPPLY THEOREM (base rewards): for every B,
+    7·issued(B) ≤ 7·tail·B + 1000·eraLen·d0 — that is, base-reward
+    issuance through any height is at most 0.2 ETT per block plus a
+    once-for-all-time decay component below eraLen·d0·1000/7 wei
+    ≈ 25,714,285.71 ETT. -/
+theorem supply_bound (B : Nat) :
+    7 * issued B ≤ 7 * (tail * B) + 1000 * (eraLen * d0) := by
+  have h1 := issued_le B
+  have h2 := decaySum_le (B / eraLen)
+  have h3 : 7 * (eraLen * decaySum (B / eraLen))
+      = eraLen * (7 * decaySum (B / eraLen)) := Nat.mul_left_comm _ _ _
+  have h4 : eraLen * (7 * decaySum (B / eraLen)) ≤ eraLen * (1000 * d0) :=
+    Nat.mul_le_mul_left _ h2
+  calc 7 * issued B
+      ≤ 7 * (tail * B + eraLen * decaySum (B / eraLen)) :=
+        Nat.mul_le_mul_left _ h1
+    _ = 7 * (tail * B) + 7 * (eraLen * decaySum (B / eraLen)) := Nat.mul_add _ _ _
+    _ ≤ 7 * (tail * B) + eraLen * (1000 * d0) := by
+        rw [h3]; exact Nat.add_le_add_left h4 _
+    _ = 7 * (tail * B) + 1000 * (eraLen * d0) := by
+        rw [Nat.mul_left_comm eraLen 1000 d0]
+
+/-- The uncle channel (everettRewards): a block with u ≤ 2 uncles mints
+    R + 2u·⌊R/32⌋ ≤ (9/8)·R. So every base-reward bound above scales by
+    at most 9/8 for full-chain issuance: decay component < 28.93M ETT,
+    tail rate ≤ 0.225 ETT/block. -/
+theorem uncle_multiplier (r u : Nat) (hu : u ≤ 2) :
+    8 * (r + (2 * u) * (r / 32)) ≤ 9 * r := by
+  have hu2 : u = 0 ∨ u = 1 ∨ u = 2 := by omega
+  cases hu2 with
+  | inl h => subst h; omega
+  | inr h2 => cases h2 with
+    | inl h => subst h; omega
+    | inr h => subst h; omega
+
+/-- Era-boundary anchor the review noted both test suites lacked. -/
+example : reward 99999 = 2000000000000000000 := by native_decide
 
 end Everett
