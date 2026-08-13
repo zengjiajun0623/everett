@@ -4,10 +4,17 @@
 # the schedule is recomputed in Python and compared against on-chain state.
 set -euo pipefail
 RPC="${RPC:-http://127.0.0.1:8545}"
+# EXPECT_CHAINID guards against auditing the wrong chain (default: the
+# dev chain; pass EXPECT_CHAINID=15537392 for Wheeler). A DeepSeek audit
+# demonstrated the false green this prevents: with a live node on the
+# host, the script happily audited a different chain than intended.
+EXPECT_CHAINID="${EXPECT_CHAINID:-15537391}"
 call() { curl -s -X POST -H 'Content-Type: application/json' --data "$1" "$RPC"; }
 
-echo "== chainId (expect 0xed14ef=15537391 devnet, 0xed14f0=15537392 Wheeler, 0xed14f1=15537393 mainnet/legacy-devnet) =="
-call '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'; echo
+echo "== chainId (expect $EXPECT_CHAINID) =="
+GOT=$(call '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -o '0x[0-9a-f]*')
+echo "$GOT"
+[ "$((GOT))" = "$EXPECT_CHAINID" ] || { echo "FAIL: chainId $((GOT)) != expected $EXPECT_CHAINID (wrong node? set RPC= / EXPECT_CHAINID=)"; exit 1; }
 
 echo "== genesis: London active (baseFeePerGas present), no withdrawalsRoot =="
 call '{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["0x0",false]}'; echo

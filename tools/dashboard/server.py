@@ -126,7 +126,7 @@ def run_audit():
     while True:
         try:
             out = subprocess.run(
-                ["python3", AUDIT], env={**os.environ, "RPC": RPC},
+                ["python3", AUDIT], env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": "15537392"},
                 capture_output=True, text=True, timeout=600)
             lines = out.stdout.strip().splitlines() or [
                 "no stdout; stderr tail:"] + out.stderr.strip().splitlines()[-4:]

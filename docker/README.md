@@ -175,7 +175,7 @@ curl -s -X POST -H 'Content-Type: application/json' \
 # 0xed14ef (15537391 devnet) or 0xed14f0 (15537392 Wheeler)
 
 git clone https://github.com/zengjiajun0623/everett   # once
-cd everett && scripts/verify_devnet.sh                # gate 2, from the host
+cd everett && scripts/verify_devnet.sh                # gate 2 (devnet; for Wheeler: EXPECT_CHAINID=15537392 scripts/verify_devnet.sh)
 ```
 
 `verify_devnet.sh` recomputes the entire Article III schedule in Python

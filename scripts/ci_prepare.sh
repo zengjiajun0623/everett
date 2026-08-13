@@ -16,6 +16,15 @@ if [ ! -d "$WORK/core-geth" ]; then
   git -C "$WORK/core-geth" remote add origin https://github.com/etclabscore/core-geth
   git -C "$WORK/core-geth" fetch --depth 1 origin "$COREGETH_COMMIT"
   git -C "$WORK/core-geth" checkout FETCH_HEAD
+else
+  # An existing checkout must BE the pin, not merely exist: a stale tree
+  # would silently run every gate against the wrong upstream.
+  HAVE=$(git -C "$WORK/core-geth" rev-parse HEAD)
+  [ "$HAVE" = "$COREGETH_COMMIT" ] || {
+    echo "FAIL: build/core-geth is at $HAVE, pin is $COREGETH_COMMIT" >&2
+    echo "      rm -rf build/core-geth to refetch, or set COREGETH_COMMIT to match" >&2
+    exit 1
+  }
 fi
 cd "$WORK/core-geth"
 

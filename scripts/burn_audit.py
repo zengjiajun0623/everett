@@ -42,6 +42,13 @@ def reward(n):
     return r
 
 
+# EXPECT_CHAINID (optional) refuses to audit the wrong chain — the
+# dashboard and CI set it; a bare manual run keeps the old behavior.
+_expect = os.environ.get("EXPECT_CHAINID")
+if _expect:
+    _got = int(rpc("eth_chainId", []), 16)
+    assert _got == int(_expect), f"wrong chain: eth_chainId={_got}, expected {_expect}"
+
 head = int(rpc("eth_blockNumber", []), 16)
 bal = defaultdict(int)
 burned = 0
