@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.everett.stratum</string>
+  <key>ProgramArguments</key><array>
+    <string>__HOME__/everett/build/kawpow-stratum</string>
+    <string>-node</string><string>http://127.0.0.1:8545</string>
+    <string>-listen</string><string>0.0.0.0:3333</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__HOME__/everett/build/stratum-wheeler.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/everett/build/stratum-wheeler.log</string>
+</dict></plist>

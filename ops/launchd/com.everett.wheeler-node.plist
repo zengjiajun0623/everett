@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.everett.wheeler-node</string>
+  <key>ProgramArguments</key><array>
+    <string>__HOME__/everett/build/core-geth/build/bin/geth</string>
+    <string>--datadir</string><string>__HOME__/everett/build/wheeler-data</string>
+    <string>--networkid</string><string>15537392</string>
+    <string>--port</string><string>30303</string>
+    <string>--nat</string><string>any</string>
+    <string>--mine</string>
+    <string>--miner.threads</string><string>2</string>
+    <string>--miner.etherbase</string><string>0xf3F527B70aF6012F328D3edE7fCd3F5F3Ca6CBA2</string>
+    <string>--http</string>
+    <string>--http.api</string><string>eth,net,web3,admin</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__HOME__/everett/build/wheeler.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/everett/build/wheeler.log</string>
+</dict></plist>
