@@ -20,6 +20,7 @@ import (
 const (
 	everettChainID   uint64 = 15537393 // mainnet: reserved for the Art. VIII launch
 	wheelerChainID   uint64 = 15537392 // Wheeler testnet: the penultimate PoW block
+	devChainID       uint64 = 15537391 // local/CI devnets only, never public
 	everettEraLength uint64 = 100_000
 	everettSlowStart uint64 = 93_000
 )
@@ -28,7 +29,7 @@ const (
 // rules. Wheeler (the testnet, named for Everett's advisor) runs identical
 // rules so it rehearses exactly what mainnet will do.
 func isEverettFamily(id uint64) bool {
-	return id == everettChainID || id == wheelerChainID
+	return id == everettChainID || id == wheelerChainID || id == devChainID
 }
 
 var (

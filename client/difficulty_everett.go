@@ -26,6 +26,7 @@ import (
 const (
 	everettChainID     uint64 = 15537393
 	wheelerChainIDDiff uint64 = 15537392
+	devChainIDDiff     uint64 = 15537391
 	asertTargetSeconds int64  = 13
 	asertHalfLife      int64  = 1800
 	asertSolveTimeCap  int64  = 6 * asertHalfLife
@@ -37,7 +38,7 @@ var everettMinDiff = big.NewInt(131072)
 // package; duplicating two constants beats an import cycle). Wheeler runs
 // identical consensus rules so the testnet rehearses mainnet exactly.
 func isEverettFamilyDiff(id uint64) bool {
-	return id == everettChainID || id == wheelerChainIDDiff
+	return id == everettChainID || id == wheelerChainIDDiff || id == devChainIDDiff
 }
 
 // everettCalcDifficulty returns the ASERT difficulty for a block at `time`
