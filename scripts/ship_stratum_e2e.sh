@@ -10,6 +10,12 @@
 #
 # Designed to need exactly one shell invocation, because the safety
 # classifier on a long session rejects most commands.
+#
+# The miner URL scheme MUST be stratum+tcp:// (forces plain mode-0
+# stratum). Bare stratum:// autodetects EthereumStratum/2.0.0 → NiceHash
+# 1.0.0 → Eth-Proxy and never tries mode 0: the miner then hashes but
+# wastes every solution ("Waiting for connection"). Cost one 12-min run
+# to learn.
 set -uo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 EVERETT="$HOME/everett"
@@ -25,7 +31,7 @@ say() { echo "[$(date +%H:%M:%S)] $*"; }
 
 say "=== 1. build + test sidecar ==="
 cd "$EVERETT/stratum" || exit 1
-go test . 2>&1 | tail -3
+go test . 2>&1 | tail -3 || { say "UNIT TESTS FAILED"; exit 1; }
 go build -o "$EVERETT/build/kawpow-stratum" . || { say "BUILD FAILED"; exit 1; }
 
 say "=== 2. launch sidecar ==="
@@ -68,18 +74,34 @@ H0=$("$GETH" attach --exec 'eth.blockNumber' "$IPC" 2>/dev/null | tr -d '"')
 D0=$("$GETH" attach --exec 'eth.getBlock(eth.blockNumber).difficulty' "$IPC" 2>/dev/null | tr -d '"')
 say "baseline: height=$H0 difficulty=$D0"
 
-cat > /tmp/mine_stratum.ps1 <<PSEOF
-\$dir = "\$env:USERPROFILE\\kawpowminer"
-Set-Location \$dir
-\$p = Start-Process -FilePath "\$dir\\kawpowminer.exe" -ArgumentList '-U','-P','stratum://$PAYOUT@$MAC_IP:3333' -RedirectStandardError "\$dir\\strat.err" -NoNewWindow -PassThru
-Start-Sleep -Seconds $((MINUTES * 60 + 60))
-Stop-Process -Id \$p.Id -Force -ErrorAction SilentlyContinue
-PSEOF
-scp -q /tmp/mine_stratum.ps1 pc3080:mine_stratum.ps1
+# The task runs a tiny BATCH file whose only job is the miner with a
+# stderr redirect — no PowerShell wrapper, no embedded sleep. Learned the
+# hard way (three runs):
+#   - a sleep-wrapper leaves a Running task instance after the miner
+#     dies; schtasks /run on a Running instance is a silent no-op, and
+#     /create /f over it orphans the wrapper beyond /end's reach
+#   - an inline /tr "cmd /c ... 2^>file" loses the redirect: the caret
+#     is literal inside the quoted ssh string, so the miner gets a junk
+#     "2>file" argument and stderr goes nowhere
+# The batch evaluates its redirect on the PC at runtime; the task
+# instance's process tree IS the miner. Stopping after the window is the
+# Mac side's job (step 7).
+cat > /tmp/mine_stratum.cmd <<CMDEOF
+@echo off
+C:\Users\Jiajun\kawpowminer\kawpowminer.exe -U -P stratum+tcp://$PAYOUT@$MAC_IP:3333 2>C:\Users\Jiajun\kawpowminer\strat.err
+CMDEOF
+sed -i '' 's/$/\r/' /tmp/mine_stratum.cmd 2>/dev/null || true
+scp -q /tmp/mine_stratum.cmd pc3080:mine_stratum.cmd
+ssh pc3080 "schtasks /end /tn EverettStratum" >/dev/null 2>&1
 ssh pc3080 "powershell -NoProfile -Command \"Stop-Process -Name kawpowminer -Force -ErrorAction SilentlyContinue\"" >/dev/null 2>&1
-ssh pc3080 "schtasks /create /f /tn EverettStratum /tr \"powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\Jiajun\\mine_stratum.ps1\" /sc once /st 00:00" >/dev/null 2>&1
+ssh pc3080 "schtasks /create /f /tn EverettStratum /tr C:\Users\Jiajun\mine_stratum.cmd /sc once /st 00:00" >/dev/null 2>&1
 ssh pc3080 "schtasks /run /tn EverettStratum" >/dev/null 2>&1
-say "miner launched, mining for $MINUTES minutes"
+sleep 15
+# Fail fast if the miner is not actually running: sampling without a
+# miner produces a report that quietly measures nothing.
+MINER_PID=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Process kawpowminer -ErrorAction SilentlyContinue).Id\"" 2>/dev/null | tr -d '\r\0 ')
+[ -z "$MINER_PID" ] && { say "MINER FAILED TO START on pc3080 (no kawpowminer process 15s after task run)"; exit 1; }
+say "miner launched (pid $MINER_PID), mining for $MINUTES minutes"
 
 say "=== 5. sample ==="
 SAMPLES=""

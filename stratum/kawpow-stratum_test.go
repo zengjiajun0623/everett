@@ -20,27 +20,42 @@ func TestToCompactRoundTrip(t *testing.T) {
 		target, _ := new(big.Int).SetString(hexTarget, 16)
 		compact := toCompact(target)
 		got := decodeCompact(compact)
-		// The compact encoding keeps the top 3 significant bytes; the decoded
-		// value must match the target in those top bytes (i.e. differ only in
-		// the bits the encoding legitimately drops).
-		if got.BitLen() != target.BitLen() {
-			t.Errorf("target %s: compact %s decodes to bitlen %d, want %d",
-				hexTarget[:12], compact, got.BitLen(), target.BitLen())
-			continue
+		// The decoded value must equal the target truncated exactly the way
+		// Bitcoin's compact encoding truncates: keep the top 3 significant
+		// bytes — and when the leading byte has its high bit set (it would
+		// collide with the sign bit), drop one more byte of precision. A
+		// mantissa of ffffff therefore legitimately round-trips to ffff00;
+		// demanding full top-24-bit fidelity is asserting a property the
+		// encoding does not have.
+		if want := bitcoinTruncate(target); got.Cmp(want) != 0 {
+			t.Errorf("target %s: compact %s decodes to %x, want %x",
+				hexTarget[:12], compact, got, want)
 		}
-		// Top 24 significant bits must be identical.
-		shift := uint(target.BitLen())
-		if shift > 24 {
-			shift -= 24
-		} else {
-			shift = 0
-		}
-		a := new(big.Int).Rsh(target, shift)
-		b := new(big.Int).Rsh(got, shift)
-		if a.Cmp(b) != 0 {
-			t.Errorf("target %s: top bits differ: %x vs %x", hexTarget[:12], a, b)
+		// And re-encoding the decoded value must be stable.
+		if again := toCompact(got); again != compact {
+			t.Errorf("target %s: re-encoding %s gives %s (not idempotent)",
+				hexTarget[:12], compact, again)
 		}
 	}
+}
+
+// bitcoinTruncate reduces target to the precision Bitcoin compact bits can
+// represent: top 3 significant bytes, minus one more byte when the leading
+// byte's high bit is set (the sign-bit shift in the encoding).
+func bitcoinTruncate(target *big.Int) *big.Int {
+	byteLen := (target.BitLen() + 7) / 8
+	keep := 3
+	if byteLen > 0 {
+		top := new(big.Int).Rsh(target, uint(8*(byteLen-1))).Uint64()
+		if top&0x80 != 0 {
+			keep = 2
+		}
+	}
+	if byteLen <= keep {
+		return new(big.Int).Set(target)
+	}
+	shift := uint(8 * (byteLen - keep))
+	return new(big.Int).Lsh(new(big.Int).Rsh(target, shift), shift)
 }
 
 // decodeCompact is SetCompact: the inverse of toCompact, for the test only.

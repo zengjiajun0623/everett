@@ -66,11 +66,48 @@ Implemented per `../G6_P1_NOTES.md` §4.2, cross-checked against kawpowminer's
 - Solo mode: share target = block target, so every accepted share is a
   block. No vardiff.
 
-## Open verification (to confirm on the devnet)
+## Dialect selection (RESOLVED 2026-08-13, cost one 12-minute run)
 
-kawpowminer selects its stratum dialect from the URL scheme; `stratum://`
-autodetects. If it negotiates NiceHash mode (EthereumStratum/1.0.0) instead
-of plain mode, the subscribe/submit shapes differ and this sidecar's
-handshake needs a branch for it. The devnet run will show which mode the
-miner picks from the first `mining.subscribe`; the fix, if needed, is a
-mode branch in `handle`, not a redesign.
+**The miner URL must use the `stratum+tcp://` scheme.** Verified on the
+devnet with kawpowminer 1.2.4 on an RTX 3080:
+
+- `stratum+tcp://0xADDR@host:3333` forces plain mode-0 stratum — the
+  dialect this sidecar speaks. subscribe → authorize → notify → submit all
+  worked first try; the GPU's first job produced a burst of accepted
+  blocks.
+- Bare `stratum://` AUTODETECTS: the miner walks EthereumStratum/2.0.0 →
+  EthereumStratum/1.0.0 (NiceHash) → Eth-Proxy and never tries mode 0.
+  It then half-works in the worst way: the Eth-Proxy login gets no valid
+  answer, the session goes dead, but broadcast `mining.notify` frames
+  still reach the socket — so the GPU hashes at full speed and wastes
+  every solution ("Solution 0x… wasted. Waiting for connection...").
+
+The sidecar now answers any unknown method with an explicit JSON-RPC
+error naming the fix (`connect with stratum+tcp://`) and logs the method,
+so a dialect mismatch is loud on both ends instead of a silent stall.
+Speaking NiceHash 1.0.0 natively (different subscribe shape, extranonce
+nonce composition) stays future work — pools need it, solo miners don't.
+
+## Three more findings the first live runs paid for (2026-08-13)
+
+1. **The kernel's boundary is the notify `bits` field, not
+   `mining.set_target`.** kawpowminer echoes set_target on screen
+   ("Difficulty: 8.00 Mh") but its CUDA search uses the compact-bits
+   param: with block bits there, a 3080 found 1,639 solutions in 7
+   seconds against a supposedly-8M share target. bits must encode the
+   SHARE target; block bits carry nothing the miner needs.
+2. **Vardiff is mandatory, not an optimization** (`-sharediff`, default
+   8M). At trivial chain difficulty the miner drowns in its own
+   submission queue, trips its own 2-second response watchdog,
+   disconnects, and then dies of a teardown-while-kernel-running race
+   (0xC0000005). A calm share rate avoids the entire cascade. No block
+   is ever lost: below-sharediff chain difficulty makes every share a
+   block; above it the share bar still passes every block solution.
+3. **Never wait on the node in the reply path.** The node stalls
+   `eth_submitWork` for seconds while digesting a block burst; one
+   synchronous forward froze all miner replies past the same watchdog.
+   Shares are acked instantly, forwards run async (max 4 in flight,
+   8-second RPC timeout, drop-when-saturated).
+
+Proof: 12-minute e2e (build/STRATUM_E2E_REPORT.md), RTX 3080, ~1,000+
+blocks, zero disconnects, ASERT climbing 131k → multi-M on schedule.

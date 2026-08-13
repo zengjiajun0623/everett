@@ -287,3 +287,47 @@ Refuted (no action): "unpinned = dishonest pinned-versions table" (table
 was explicit about it), "miner URL needs 0xaddress@" (kawpowminer-only
 quirk; ethminer getwork credits the node's etherbase — proven by the live
 Wheeler balances).
+
+## 2026-08-13 (afternoon): stratum sidecar LIVE-PROVEN — six-run debugging campaign
+
+The one-command e2e (`scripts/ship_stratum_e2e.sh`) is green: RTX 3080
+mining an Everett KawPow devnet through the sidecar, ~1,000+ blocks in
+12 minutes, zero disconnects, ASERT climbing 131k → 6.4M+ on its
+textbook exponential (doubling per minute of fast blocks). Report:
+build/STRATUM_E2E_REPORT.md.
+
+Getting there took six live runs, each buying one real lesson (all now
+encoded in code comments, stratum/README.md, and the e2e script):
+
+1. **URL scheme**: bare `stratum://` autodetects EthereumStratum/2.0.0 →
+   NiceHash → Eth-Proxy and never tries mode 0; the miner then hashes and
+   wastes every solution. `stratum+tcp://` forces the dialect we speak.
+2. **schtasks lifecycle**: /run on a still-Running instance is a silent
+   no-op; a sleep-wrapper keeps instances alive after the miner dies, and
+   /create /f orphans them beyond /end. The task now runs a batch file
+   whose process tree IS the miner; the e2e fail-fasts if no miner
+   process exists 15s after launch.
+3. **Windows quoting**: an inline /tr "cmd /c ... 2^>file" passes a junk
+   argument instead of redirecting (caret is literal inside the quoted
+   ssh string) — the death logs went nowhere for two runs.
+4. **The node stalls submitWork for seconds** after a block burst; one
+   synchronous forward in the reply path froze all acks past
+   kawpowminer's 2-second watchdog. Sidecar now acks instantly, forwards
+   async (≤4 in flight, 8s timeout), and never waits on the node.
+5. **kawpowminer crashes (0xC0000005) on disconnect-while-hashing** — the
+   watchdog disconnect wasn't graceful degradation, it was fatal.
+6. **The kernel's search boundary is notify `bits`, not set_target** —
+   the decisive finding. With block bits in the job, the GPU hunted at
+   131k while displaying the 8M share target: 1,639 solutions in 7s,
+   watchdog, crash. bits now encodes the share target; -sharediff
+   (default 8M) is mandatory vardiff, not tuning.
+
+Also fixed en route: `{"id":N}` responses with a false result dropped by
+json omitempty (rejected shares got a malformed reply); a unit test that
+asserted impossible top-24-bit fidelity for sign-bit compact mantissas;
+the e2e silently ignoring unit-test failures.
+
+Wheeler note: the getwork transport limitation documented in
+GPU_MINING.md stands; the sidecar is now the proven mining path for the
+KawPow era. It should ship in the Docker stack as a third service before
+the Wheeler flip.
