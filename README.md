@@ -63,6 +63,25 @@ scripts/verify_devnet.sh
 demands your miner balance match it wei for wei; `burn_audit.py` does full
 supply accounting including uncles (Art. III.5) and the 1559 burn (Art. IV).
 
+## Docker / Portainer quickstart
+
+GPU mining stack for a headless server: the node (built from source in
+Docker, verification gates included in the build — a failed gate fails the
+image) plus an external ethminer over RPC. Portainer-ready; no prebuilt
+binaries, no secrets.
+
+```bash
+docker build -f docker/node.Dockerfile  -t everett-node:local .
+docker build -f docker/miner.Dockerfile -t everett-miner:local .
+docker compose -f docker/docker-compose.yml up -d --build
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+  http://127.0.0.1:8545     # 0xed14f1 devnet, 0xed14f0 Wheeler
+```
+
+Full walkthrough (Portainer GUI build + deploy, env table, verification,
+safety notes): [docker/README.md](docker/README.md).
+
 ## Status
 
 v0.1 draft, August 2026. A launch-in-waiting by design: the spec exists to be
