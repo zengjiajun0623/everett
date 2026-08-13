@@ -244,3 +244,46 @@ the user can run). Everything above is on disk and uncommitted.
 ```bash
 bash ~/everett/scripts/ship_stratum_e2e.sh
 ```
+
+## 2026-08-13 (day): PR #1 merged — Docker/Portainer packaging (Justin), plus hardening follow-up
+
+First external contribution. Justin (MidnightOnMars) shipped a Docker +
+Portainer stack: node image that builds core-geth + Everett patches from
+source WITH the verification gates in the build (a failing gate fails the
+image), an ethminer v0.19.0 CUDA image for GPU mining over getwork, compose
+stack, and a full GUI walkthrough. His build evidence (RTX 3090): both
+images from scratch, 12/12 gates in-build, wei-exact verify_devnet.sh from
+host AND in-container, plus a live Wheeler join. Corroborated on our side:
+the "mystery" external peer from last night mines to the compose stack's
+default throwaway etherbase 0x1000…0001 — it was Justin's stack, and
+burn_audit.py shows its rewards wei-exact (4,558 blocks, 226 uncles,
+3 miners, delta=0 for all three).
+
+Review: 4-lens adversarial workflow (supply-chain, consensus-consistency,
+docker mechanics, docs) + CI on the PR branch (approved first-contributor
+run; all 3 jobs green). No consensus files touched; Hunter's Boost URL
+repoint preserves SHA1 verification; RPC host-published to localhost only.
+Merged as 37005ee (merge commit, authorship preserved).
+
+Confirmed findings → fixed in follow-up commit on main:
+1. Devnet default was legacy genesis-devnet.json = chain ID 15537393, the
+   RESERVED mainnet ID (replay hygiene). Now defaults to genesis-dev.json
+   (15537391) everywhere; legacy file ships for compat, marked as such.
+2. Image replicated superseded boot_devnet.sh prep — no KawPow. Now mirrors
+   ci_prepare.sh: kawpow files + hooks + TestKawPow gate in the build.
+3. core-geth clone unpinned (consensus binary from moving HEAD). Now pinned
+   via COREGETH_COMMIT=10f1ea74… (the gate-verified tree); build-arg
+   overridable. Fetch-by-SHA verified against GitHub.
+4. --http.vhosts '*' reopened the DNS-rebinding hole; now
+   node,localhost,127.0.0.1 (HTTP_VHOSTS env to extend).
+5. Docs: env table conflated compose defaults with image defaults; fake
+   `docker compose exec node eth_getWork` command → curl; missing -f flags;
+   Ubuntu 24.04 apt package is docker-compose-v2 (not docker-compose-plugin);
+   chain-ID copy throughout; getwork-churn transport note pointing at
+   stratum/. Also fixed OUR stale verify_devnet.sh echo that still taught
+   0xed14f1 as the devnet chainId.
+
+Refuted (no action): "unpinned = dishonest pinned-versions table" (table
+was explicit about it), "miner URL needs 0xaddress@" (kawpowminer-only
+quirk; ethminer getwork credits the node's etherbase — proven by the live
+Wheeler balances).

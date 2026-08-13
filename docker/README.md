@@ -22,9 +22,9 @@ docker/
 
 | Component | Version | Notes |
 |---|---|---|
-| Build base (node) | `golang:1.23-bookworm` | replicate `boot_devnet.sh` PREP |
+| Build base (node) | `golang:1.23-bookworm` | replicates `ci_prepare.sh` (the canonical prep, KawPow included) |
 | Runtime base (node) | `ubuntu:24.04` | + ca-certificates, curl, python3 |
-| core-geth | upstream default branch, depth-1 | same clone as `boot_devnet.sh`; blst v0.3.17 + memsize excision applied in-build |
+| core-geth | commit `10f1ea74…` (pinned via `COREGETH_COMMIT` build arg) | the tree every Everett gate was verified against; blst v0.3.17 + memsize excision applied in-build |
 | Build base (miner) | `nvidia/cuda:11.8.0-devel-ubuntu22.04` | CUDA 11.8 is battle-tested for Ampere; CUDA 12 breaks the old ethminer build |
 | Runtime base (miner) | `nvidia/cuda:11.8.0-runtime-ubuntu22.04` | matched to the 11.8 toolkit |
 | ethminer | `v0.19.0` (`ethereum-mining/ethminer`) | the upstream repo is archived; its last release tag is v0.19.0 — **there is no v0.20.0 tag upstream**, so v0.19.0 is the pinned "old ethminer" build |
@@ -34,7 +34,9 @@ docker/
 ## Prerequisites (host)
 
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-plugin
+# Ubuntu's own packages (docker-compose-v2 provides `docker compose`);
+# docker-compose-plugin only exists in Docker Inc's apt repo, not Ubuntu's.
+sudo apt update && sudo apt install -y docker.io docker-compose-v2
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
   | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 # (Ubuntu 24.04 repo line; see https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
@@ -69,9 +71,9 @@ docker build -f docker/node.Dockerfile  -t everett-node:local .
 docker build -f docker/miner.Dockerfile -t everett-miner:local .
 ```
 
-The node build runs `TestEverett` + `TestASERT` and **fails the build** if
-either suite fails. Expect 5-15 min (node) and 15-30 min (miner: CUDA
-toolchain pull + ethminer compile + Boost via Hunter).
+The node build runs `TestEverett` + `TestASERT` + `TestKawPow` and **fails
+the build** if any suite fails. Expect 5-20 min (node) and 15-30 min
+(miner: CUDA toolchain pull + ethminer compile + Boost via Hunter).
 
 ### Portainer GUI
 
@@ -83,9 +85,9 @@ toolchain pull + ethminer compile + Boost via Hunter).
 
 ## Deploy the stack
 
-The stack defaults to **devnet** (chain ID 15537393, `--nodiscover`,
-throwaway etherbase, GPU miner only — the node mines zero CPU threads and
-just serves work to ethminer).
+The stack defaults to **devnet** (`genesis-dev.json`, chain ID 15537391,
+`--nodiscover`, throwaway etherbase, GPU miner only — the node mines zero
+CPU threads and just serves work to ethminer).
 
 ### Portainer GUI (recommended)
 
@@ -114,15 +116,19 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ## Environment variables
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `GENESIS` | `genesis-devnet.json` | `genesis-devnet.json` (devnet), `genesis-wheeler.json` (Wheeler testnet), `genesis.json` (mainnet — reserved, do not use casually), or an absolute path |
-| `MINE` | `1` | `1` = enable mining (`--mine`); `0` = sync-only node |
-| `ETHERBASE` | throwaway `0x1000…0001` | Coinbase address. **Required when `MINE=1`** (the entrypoint hard-fails without it). Devnet/Wheeler coins are valueless; use your own EOA to keep anything |
-| `MINER_THREADS` | `0` | Node CPU mining threads. `0` = serve `eth_getWork` only; the GPU miner does the hashing. `>0` also mines on CPU |
-| `NETWORKID` | auto from `GENESIS` | 15537393 (devnet/mainnet), 15537392 (Wheeler) |
-| `BOOTNODE` | unset | Set an `enode://…@host:30303` to join a public network (Wheeler). Unset = `--nodiscover` (private devnet) |
-| `DATADIR` | `/data` | Node datadir (bind-mounted volume) |
+Defaults below are the **image** (entrypoint) defaults; where the compose
+stack sets its own value, that is listed too.
+
+| Variable | Image default | Compose stack | Purpose |
+|---|---|---|---|
+| `GENESIS` | `genesis-dev.json` | same | `genesis-dev.json` (devnet, 15537391), `genesis-wheeler.json` (Wheeler testnet), `genesis.json` (mainnet — reserved, do not use casually), `genesis-devnet.json` (legacy devnet — carries the reserved mainnet chain ID; only for stacks already running it), or an absolute path |
+| `MINE` | `0` (sync-only) | `1` | `1` = enable mining (`--mine`); `0` = sync-only node |
+| `ETHERBASE` | unset | throwaway `0x1000…0001` | Coinbase address. **Required when `MINE=1`** (the entrypoint hard-fails without it). Devnet/Wheeler coins are valueless; use your own EOA to keep anything |
+| `MINER_THREADS` | `0` | `0` | Node CPU mining threads. `0` = serve `eth_getWork` only; the GPU miner does the hashing. `>0` also mines on CPU |
+| `NETWORKID` | auto from `GENESIS` | auto | 15537391 (devnet, also the fallback for absolute-path genesis — set explicitly if yours differs), 15537392 (Wheeler), 15537393 (mainnet/legacy devnet) |
+| `BOOTNODE` | unset | unset | Set an `enode://…@host:30303` to join a public network (Wheeler). Unset = `--nodiscover` (private devnet) |
+| `HTTP_VHOSTS` | `node,localhost,127.0.0.1` | same | Allowed HTTP `Host` headers. The default covers the compose miner and host-localhost curls without reopening the DNS-rebinding hole a `*` wildcard would |
+| `DATADIR` | `/data` | `/data` | Node datadir (bind-mounted volume) |
 
 Wheeler mode (live testnet, chain ID 15537392 — bootnode from README):
 
@@ -152,7 +158,7 @@ On the host (RPC is published to localhost only):
 curl -s -X POST -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
   http://127.0.0.1:8545
-# 0xed14f1 (15537393 devnet) or 0xed14f0 (15537392 Wheeler)
+# 0xed14ef (15537391 devnet) or 0xed14f0 (15537392 Wheeler)
 
 git clone https://github.com/zengjiajun0623/everett   # once
 cd everett && scripts/verify_devnet.sh                # gate 2, from the host
@@ -161,18 +167,30 @@ cd everett && scripts/verify_devnet.sh                # gate 2, from the host
 `verify_devnet.sh` recomputes the entire Article III schedule in Python
 (independent of the Go code) and demands the miner's balance match wei for
 wei, including uncles and the 1559 burn. On a healthy devnet stack it ends
-with `PASS … delta=0`. Inside the container: `docker compose exec node
+with `PASS … delta=0`. Inside the container (`-f` is needed unless you run
+from `docker/`): `docker compose -f docker/docker-compose.yml exec node
 /usr/local/bin/verify_devnet.sh` (the image ships the audit scripts).
 
 Miner health:
 
 ```bash
 docker logs -f everett-miner        # **Accepted** shares, Epoch 0 Difficulty…
-docker compose exec node eth_getWork 2>/dev/null # or via curl on the host
+```
+
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_getWork","params":[]}' \
+  http://127.0.0.1:8545   # [headerhash, seedhash, boundary, height] = serving work
 ```
 
 Portainer: the stack page shows `everett-node` (healthy) and
 `everett-miner`; open each container's *Logs* tab.
+
+Transport note: `eth_getWork` polling is fine for devnet and early Wheeler,
+but soak testing on this repo showed it churns (miner suspend/resume on
+every new head) as difficulty and block cadence rise. The stratum sidecar
+in [`stratum/`](../stratum/README.md) is the long-run transport; a
+containerized variant is planned.
 
 ## Safety notes
 
@@ -183,7 +201,9 @@ Portainer: the stack page shows `everett-node` (healthy) and
   EOA if you want to keep anything; devnet coins are valueless by design.
 - `genesis.json` (mainnet, chain ID 15537393) is **reserved** for the
   Article VIII launch ceremony. Do not run it casually. The stack defaults
-  to `genesis-devnet.json`.
+  to `genesis-dev.json` (chain ID 15537391). The legacy
+  `genesis-devnet.json` also carries the reserved 15537393 — it ships only
+  so stacks already running it keep working; new devnets should not use it.
 - No secrets: nothing in the repo or the images requires credentials.
 - Everything builds from source; a failed gate fails the build. There are
   no prebuilt binaries to trust.

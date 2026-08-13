@@ -3,9 +3,11 @@
 # (custom-paste and git-repo modes) - see docker/README.md for the GUI
 # walkthrough and the environment variable table.
 #
-# Default: DEVNET (genesis-devnet.json, chain ID 15537393, --nodiscover,
+# Default: DEVNET (genesis-dev.json, chain ID 15537391, --nodiscover,
 # throwaway etherbase, zero CPU mining threads - work is served to the GPU
-# miner over the internal network only).
+# miner over the internal network only). 15537393 is RESERVED for mainnet;
+# the legacy genesis-devnet.json still carries it and ships only for
+# compatibility with stacks already running it.
 #
 # For Wheeler (testnet, chain ID 15537392) set:
 #   GENESIS:   genesis-wheeler.json
@@ -22,13 +24,14 @@ services:
       dockerfile: docker/node.Dockerfile
     container_name: everett-node
     environment:
-      # genesis-devnet.json | genesis-wheeler.json | genesis.json (reserved)
-      GENESIS: genesis-devnet.json
+      # genesis-dev.json | genesis-wheeler.json | genesis.json (reserved)
+      # | genesis-devnet.json (legacy, reserved mainnet chain ID)
+      GENESIS: genesis-dev.json
       MINE: "1"
       # Throwaway devnet address; replace with your own EOA to keep coins.
       ETHERBASE: "0x1000000000000000000000000000000000000001"
       MINER_THREADS: "0"
-      # NETWORKID: 15537393   # auto-derived from GENESIS when unset
+      # NETWORKID: 15537391   # auto-derived from GENESIS when unset
       # BOOTNODE: ""          # set for Wheeler; --nodiscover when unset
     ports:
       # RPC: localhost only on the host. Never publish to 0.0.0.0.

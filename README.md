@@ -76,7 +76,7 @@ docker build -f docker/miner.Dockerfile -t everett-miner:local .
 docker compose -f docker/docker-compose.yml up -d --build
 curl -s -X POST -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
-  http://127.0.0.1:8545     # 0xed14f1 devnet, 0xed14f0 Wheeler
+  http://127.0.0.1:8545     # 0xed14ef devnet, 0xed14f0 Wheeler
 ```
 
 Full walkthrough (Portainer GUI build + deploy, env table, verification,

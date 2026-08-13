@@ -10,18 +10,24 @@
 set -euo pipefail
 
 DATADIR="${DATADIR:-/data}"
-GENESIS="${GENESIS:-genesis-devnet.json}"
+GENESIS="${GENESIS:-genesis-dev.json}"
 BOOTNODE="${BOOTNODE:-}"
 MINE="${MINE:-0}"
 MINER_THREADS="${MINER_THREADS:-0}"
 PORT="${PORT:-30303}"
 
+# genesis-dev.json (15537391) is the canonical devnet. genesis-devnet.json
+# is LEGACY: it predates the chain-ID split and carries 15537393, the ID
+# reserved for the mainnet launch ceremony — kept only so existing stacks
+# keep working. genesis.json itself is reserved (Art. VIII); do not run it
+# casually.
 case "$GENESIS" in
+  genesis-dev.json)     NETWORKID="${NETWORKID:-15537391}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis-devnet.json)  NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis-wheeler.json) NETWORKID="${NETWORKID:-15537392}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis.json)         NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
-  /*)                   NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="$GENESIS" ;;
-  *) echo "run-node: unsupported GENESIS='$GENESIS' (use genesis-devnet.json, genesis-wheeler.json, genesis.json, or an absolute path)" >&2; exit 1 ;;
+  /*)                   NETWORKID="${NETWORKID:-15537391}"; GENESIS_FILE="$GENESIS" ;;
+  *) echo "run-node: unsupported GENESIS='$GENESIS' (use genesis-dev.json, genesis-wheeler.json, genesis.json, genesis-devnet.json [legacy], or an absolute path)" >&2; exit 1 ;;
 esac
 
 mkdir -p "$DATADIR"
@@ -31,9 +37,13 @@ if [ ! -d "$DATADIR/geth/chaindata" ]; then
   geth --datadir "$DATADIR" init "$GENESIS_FILE"
 fi
 
+# vhosts: only the hostnames that actually reach this RPC — the miner
+# (Host: node), the healthcheck and host-published curls (localhost /
+# 127.0.0.1). A wildcard would reopen the DNS-rebinding hole the vhosts
+# check exists to close. Extend HTTP_VHOSTS if you front it differently.
 ARGS=(--datadir "$DATADIR" --networkid "$NETWORKID" --port "$PORT"
       --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3
-      --http.vhosts '*')
+      --http.vhosts "${HTTP_VHOSTS:-node,localhost,127.0.0.1}")
 
 # Devnet: private, no discovery. Wheeler: public, join via bootnode(s).
 if [ -n "$BOOTNODE" ]; then

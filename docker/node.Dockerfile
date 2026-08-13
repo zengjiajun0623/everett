@@ -1,11 +1,14 @@
 # syntax=docker/dockerfile:1
 # Everett node image: core-geth + the Everett consensus patches, built from
 # source with the verification gates intact. The build stage replicates
-# scripts/boot_devnet.sh's PREP EXACTLY (clone, modern-Go compat, patch
-# copies, hooks, gates, build); any failing gate fails the image build.
+# scripts/ci_prepare.sh EXACTLY (clone, modern-Go compat, patch copies,
+# hooks — including KawPow — then the gates and the build); any failing
+# gate fails the image build. KawPow stays inert at runtime unless
+# EVERETT_KAWPOW=1 (devnet experiments only; see client/kawpow_engine.go).
 #
 # Pinned versions: golang:1.23-bookworm (build), ubuntu:24.04 (runtime),
-# core-geth @ upstream default branch (depth-1 clone, same as boot_devnet.sh).
+# core-geth pinned by COREGETH_COMMIT (the tree all Everett gates were
+# verified against; ci_prepare.sh still tracks upstream HEAD for CI).
 
 FROM golang:1.23-bookworm AS build
 
@@ -17,12 +20,19 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git python3 \
  && rm -rf /var/lib/apt/lists/*
 
-# Step 1 of boot_devnet.sh: depth-1 clone of upstream core-geth.
-RUN git clone --depth 1 https://github.com/etclabscore/core-geth /src/core-geth
+# Step 1: fetch upstream core-geth PINNED to the commit every Everett gate
+# has been verified against (ci_prepare.sh clones default-branch HEAD; an
+# image build must be reproducible, so it pins). Override with
+# --build-arg COREGETH_COMMIT=... to track a newer upstream deliberately.
+ARG COREGETH_COMMIT=10f1ea745cd89d72c398484a234cdc7fb29ecc32
+RUN git init /src/core-geth \
+ && git -C /src/core-geth remote add origin https://github.com/etclabscore/core-geth \
+ && git -C /src/core-geth fetch --depth 1 origin "$COREGETH_COMMIT" \
+ && git -C /src/core-geth checkout FETCH_HEAD
 
 WORKDIR /src/core-geth
 
-# Step 2: modern-Go compat fixes, verbatim from boot_devnet.sh (idempotent):
+# Step 2: modern-Go compat fixes, verbatim from ci_prepare.sh (idempotent):
 # blst v0.3.11-* fails under Go 1.23+; bump to v0.3.17. fjl/memsize uses a
 # runtime linkname removed in modern Go; excise it (same removal upstream
 # geth made).
@@ -35,19 +45,24 @@ RUN set -eux; \
     sed -i.bak '/debug.Memsize.Add("node", stack)/d' cmd/geth/main.go && rm -f cmd/geth/main.go.bak
 
 # Step 3: drop the Everett family files into the clone (params/mutations/
-# and consensus/ethash/, exactly as boot_devnet.sh does).
+# and consensus/ethash/, exactly as ci_prepare.sh does).
 COPY client/rewards_everett.go client/rewards_everett_test.go params/mutations/
 COPY client/difficulty_everett.go client/difficulty_everett_test.go consensus/ethash/
-COPY scripts/apply_hook.py scripts/apply_daa_hook.py /src/scripts/
+COPY client/kawpow_core.go client/kawpow_core_test.go consensus/ethash/
+COPY scripts/apply_hook.py scripts/apply_daa_hook.py scripts/apply_kawpow_hooks.py /src/scripts/
 
-# Step 4: apply the two consensus hooks idempotently.
+# Step 4: apply the consensus hooks idempotently. kawpow_engine.go lands
+# AFTER the KawPow hooks, mirroring ci_prepare.sh's order.
 RUN python3 /src/scripts/apply_hook.py params/mutations/rewards.go \
- && python3 /src/scripts/apply_daa_hook.py consensus/ethash/consensus.go
+ && python3 /src/scripts/apply_daa_hook.py consensus/ethash/consensus.go \
+ && python3 /src/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go
+COPY client/kawpow_engine.go consensus/ethash/
 
-# Step 5: verification gate 1 (schedule + DAA). Both suites MUST pass;
-# a failure here aborts the image build.
+# Step 5: verification gate 1 (schedule + DAA + KawPow). All suites MUST
+# pass; a failure here aborts the image build.
 RUN go test ./params/mutations/ -run TestEverett -v \
- && go test ./consensus/ethash/ -run TestASERT -v
+ && go test ./consensus/ethash/ -run TestASERT -v \
+ && go test ./consensus/ethash/ -run TestKawPow -v -timeout 40m
 
 # Step 6: build geth.
 RUN make geth
@@ -64,7 +79,10 @@ RUN apt-get update \
 COPY --from=build /src/core-geth/build/bin/geth /usr/local/bin/geth
 
 # Genesis files at /etc/everett/; GENESIS env selects one (see run-node.sh).
-COPY genesis-devnet.json genesis-wheeler.json genesis.json /etc/everett/
+# genesis-dev.json (chain ID 15537391) is the canonical devnet; the legacy
+# genesis-devnet.json (15537393 — the RESERVED mainnet ID) ships only for
+# compatibility with stacks already running it.
+COPY genesis-dev.json genesis-devnet.json genesis-wheeler.json genesis.json /etc/everett/
 
 # Gate-2 verification scripts, runnable inside the container (also from the
 # host against 127.0.0.1:8545, per docker/README.md).
