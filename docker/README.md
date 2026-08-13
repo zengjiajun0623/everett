@@ -200,10 +200,12 @@ containerized variant is planned.
 - The default `ETHERBASE` is a throwaway address. On Wheeler, use your own
   EOA if you want to keep anything; devnet coins are valueless by design.
 - `genesis.json` (mainnet, chain ID 15537393) is **reserved** for the
-  Article VIII launch ceremony. Do not run it casually. The stack defaults
-  to `genesis-dev.json` (chain ID 15537391). The legacy
-  `genesis-devnet.json` also carries the reserved 15537393 — it ships only
-  so stacks already running it keep working; new devnets should not use it.
+  Article VIII launch ceremony. The entrypoint refuses to start it unless
+  `EVERETT_ART_VIII_CEREMONY=1` is set — that flag belongs to the ceremony,
+  not to experiments. The stack defaults to `genesis-dev.json` (chain ID
+  15537391). The legacy `genesis-devnet.json` also carries the reserved
+  15537393 — it ships only so stacks already running it keep working; new
+  devnets should not use it.
 - No secrets: nothing in the repo or the images requires credentials.
 - Everything builds from source; a failed gate fails the build. There are
   no prebuilt binaries to trust.

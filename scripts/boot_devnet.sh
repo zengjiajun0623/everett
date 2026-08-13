@@ -44,19 +44,25 @@ GETH="$WORK/core-geth/build/bin/geth"
 echo "== init genesis =="
 # Devnet genesis (0x20000 difficulty) by default: the production difficulty
 # guess stalls CPU miners. Override with GENESIS=genesis.json for prod tests.
+# genesis-dev.json (chainId 15537391) is the canonical devnet; the legacy
+# genesis-devnet.json carries the RESERVED mainnet chainId 15537393 and is
+# kept only for existing datadirs (an existing chain is never re-inited, so
+# old devnets keep working — new ones get the dedicated ID).
 # The chain persists across runs; RESET=1 wipes it and starts from genesis.
-GENESIS_FILE="$EVERETT/${GENESIS:-genesis-devnet.json}"
+GENESIS_FILE="$EVERETT/${GENESIS:-genesis-dev.json}"
 if [ "${RESET:-0}" = "1" ] || [ ! -d "$DATADIR/geth/chaindata" ]; then
   rm -rf "$DATADIR"
   "$GETH" --datadir "$DATADIR" init "$GENESIS_FILE"
 else
   echo "existing chain found in $DATADIR (RESET=1 to wipe)"
 fi
+# networkid follows the genesis file's chainId instead of a hardcoded value.
+NETWORKID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['config']['chainId'])" "$GENESIS_FILE")
 
 echo "== mining (Ctrl-C to stop; run verify_devnet.sh in another shell) =="
 # Rewards go to ETHERBASE; set it to your own address to keep what you mine.
 ETHERBASE="${ETHERBASE:-0x1000000000000000000000000000000000000001}"
-exec "$GETH" --datadir "$DATADIR" --networkid 15537393 --nodiscover \
+exec "$GETH" --datadir "$DATADIR" --networkid "$NETWORKID" --nodiscover \
   --mine --miner.threads "${THREADS:-1}" \
   --miner.etherbase "$ETHERBASE" \
   --http --http.api eth,net,web3

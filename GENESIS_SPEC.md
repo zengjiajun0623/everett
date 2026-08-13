@@ -73,7 +73,7 @@ they never should have anyway).
    fleet cuts both ways: stranded fleets are concentrated, and one warehouse
    may be a majority of early hashrate.
 3. **Launch difficulty estimation.** genesis.json guesses 0x100000000
-   (~330 MH/s at 13 s); genesis-devnet.json uses the 0x20000 floor for CPU
+   (~330 MH/s at 13 s); genesis-dev.json uses the 0x20000 floor for CPU
    devnets (the production guess empirically stalls a CPU miner). Arriving
    hashpower is unknowable within orders of magnitude. ASERT bounds the
    damage (a large overshoot recovers in ~1.6 h per DAA_MEMO v2) but a
@@ -96,6 +96,7 @@ they never should have anyway).
 |---|---|---|---|
 | **Everett** (mainnet) | 15537393 · mainnet's last PoW block | genesis.json · empty extraData until the v1.0 freeze commits the constitution hash | Reserved for the Article VIII launch ceremony. Do not start it casually. |
 | **Wheeler** (testnet) | 15537392 · the penultimate PoW block, the rehearsal | genesis-wheeler.json · extraData tags "EVERETT WHEELER TESTNET", distinct genesis hash | Named for John Wheeler, Everett's advisor. Identical consensus rules via the family hooks; coins valueless by intent. Live 2026-08-13. |
+| **dev** (local/CI) | 15537391 | genesis-dev.json · 0x20000 difficulty floor so CPU miners work | Throwaway devnets and CI e2e. Never sign anything you care about on it. The legacy genesis-devnet.json (chainId 15537393, colliding with reserved mainnet — an EIP-155 replay hazard for any key reused there) is deprecated: kept in-tree for stacks already running it, not for new devnets. |
 
 ## 5a. Client patches (delta from stock core-geth)
 

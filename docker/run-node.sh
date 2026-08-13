@@ -30,6 +30,17 @@ case "$GENESIS" in
   *) echo "run-node: unsupported GENESIS='$GENESIS' (use genesis-dev.json, genesis-wheeler.json, genesis.json, genesis-devnet.json [legacy], or an absolute path)" >&2; exit 1 ;;
 esac
 
+# Art. VIII: mainnet begins with a launch ceremony, not an env var. The
+# reserved genesis ships in the image so ceremony infrastructure can use
+# this packaging, but it refuses to start without an explicit
+# acknowledgment — a convenience image must not run the reserved chain
+# casually.
+if [ "$GENESIS" = "genesis.json" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
+  echo "run-node: genesis.json (chain ID 15537393) is RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
+  echo "run-node: use genesis-dev.json (devnet) or genesis-wheeler.json (testnet); set EVERETT_ART_VIII_CEREMONY=1 only as part of the ceremony." >&2
+  exit 1
+fi
+
 mkdir -p "$DATADIR"
 
 if [ ! -d "$DATADIR/geth/chaindata" ]; then
