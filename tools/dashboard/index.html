@@ -100,7 +100,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const CAT = { "0xf3f527b70af6012f328d3ede7fcd3f5f3ca6cba2": ["var(--cat-a)", "jiajun"],
-              "0x1000000000000000000000000000000000000001": ["var(--cat-b)", "justin·docker"] };
+              "0x1000000000000000000000000000000000000001": ["var(--cat-b)", "justin·docker"],
+              "0x3f37629109202c791814f972f689f23696d32a95": ["var(--cat-c)", "burn-test (ours)"] };
 const OTHER = ["var(--cat-c)", null];
 const minerInfo = m => CAT[m] || [OTHER[0], m.slice(0, 8) + "…" + m.slice(-4)];
 // Origin heuristic: stratum GPU nonces begin with the sidecar's 2-byte
