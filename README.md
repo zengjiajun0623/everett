@@ -2,13 +2,31 @@
 
 **Ethereum as if proof of stake had never been the plan.**
 
-A genesis-ready specification for a fresh-start proof-of-work EVM chain:
-pre-merge Ethereum's machine (ethash, uncles, EIP-1559 burn, modern EVM),
+A genesis-ready, machine-verified proof-of-work EVM chain: pre-merge
+Ethereum's machine (uncles, EIP-1559 burn, modern EVM) sealed by KawPow,
 pointed away from the Merge, launched with an empty genesis state and a
-monetary constitution frozen before anyone exists to lobby against it.
+monetary constitution frozen before anyone exists to lobby against it —
+and proven, not just promised:
+
+- **Live**: the Wheeler testnet runs the exact mainnet rules — KawPow
+  from genesis, ASERT difficulty, GPU-mined, supply audited wei-for-wei
+  every five minutes by an independent Python recomputation (uncles and
+  the 1559 burn included).
+- **Machine-checked**: Article III is formalized in Lean 4 with zero
+  sorries ([fv/](fv/)) — the supply bound is an inductive invariant
+  (base issuance ≤ 0.2·B + ~25.71M ETT decay component, forever; ×9/8
+  under the uncle cap), decay provably dies at era 5360, and from block
+  536,000,000 every reward is EXACTLY the 0.2 tail. The ASERT
+  fixed-point layer is verified by complete enumeration over its finite
+  domain. Three independently written implementations (Go, Python,
+  Lean) are pinned to one set of vectors; CI re-proves everything on
+  every push.
 
 - [CONSTITUTION.md](CONSTITUTION.md) — the monetary constitution. Governs.
 - [GENESIS_SPEC.md](GENESIS_SPEC.md) — client, consensus, and launch spec.
+- [fv/](fv/) — the theorems. [LAUNCH_DIFFICULTY.md](LAUNCH_DIFFICULTY.md) —
+  launch parameters from measured data. [RUNBOOK.md](RUNBOOK.md) — the
+  full build log, failures included.
 
 ## Thesis in three sentences
 
@@ -31,10 +49,12 @@ consensus rules. Its public bootnode:
 enode://ad614b8cc1737cdaeaa38706ef131c924a37e507bc8d1e76897037056d6c67bfafca8ed4c65e6be76ed319f38c89a6a5f9acb75b8da822146fc6cc4d9d117b5f@71.183.54.11:30303
 ```
 
-Grab the node package from whoever pointed you here (or build from source
-below), then `./run-node.sh` to sync trustlessly from genesis, or
-`MINE=1 ETHERBASE=0xYou ./run-node.sh` to mine. Nobody's permission
-required; that is the point. Wheeler coins are valueless test material.
+Wheeler runs KawPow (as mainnet will): sync trustlessly with the Docker
+stack below or a source build, and mine with any stock KawPow miner
+pointed at the bundled stratum service
+(`kawpowminer -U -P stratum+tcp://0xYou@<host>:3333`). Nobody's
+permission required; that is the point. Wheeler coins are valueless
+test material.
 
 ## Run it yourself
 
@@ -84,6 +104,10 @@ safety notes): [docker/README.md](docker/README.md).
 
 ## Status
 
-v0.1 draft, August 2026. A launch-in-waiting by design: the spec exists to be
-ready, not to be launched into calm. See Constitution Article VIII and
-GENESIS_SPEC section 6 for launch procedure.
+v0.1, August 2026. A launch-in-waiting by design: the spec exists to be
+ready, not to be launched into calm. Every constitutional article has been
+verified live on Wheeler (rewards, uncles, ASERT, and the first burn —
+147,000 wei provably destroyed in block 1818) and the schedule is
+machine-checked in Lean. Remaining before an Article VIII ceremony:
+independent bootnode infrastructure, the name sweep, and a date. See
+Constitution Article VIII and GENESIS_SPEC section 6 for launch procedure.
