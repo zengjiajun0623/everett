@@ -1,8 +1,12 @@
 # Everett Docker / Portainer deployment
 
-Run an Everett node plus an external GPU miner (ethminer over RPC,
-`eth_getWork`/`eth_submitWork`) with Docker. Deploy with either the CLI or
-Portainer's GUI; the same `docker-compose.yml` serves both.
+Run an Everett node plus the `kawpow-stratum` sidecar with Docker: the node
+does no hashing itself (`MINER_THREADS=0`) and serves work through the
+sidecar on port 3333, where any stock KawPow miner (kawpowminer, T-Rex)
+connects. That is the default stack. The bundled ethminer container
+(ethash-only, `eth_getWork`/`eth_submitWork` over RPC) is legacy and starts
+only under the `ethash-legacy` compose profile. Deploy with either the CLI
+or Portainer's GUI; the same `docker-compose.yml` serves both.
 
 The node image is built from source inside Docker and runs **the
 verification gates as part of the build**: the build aborts if
@@ -17,7 +21,7 @@ docker/
 ├── stratum.Dockerfile   # kawpow-stratum sidecar (KawPow miners connect here)
 ├── miner.Dockerfile     # ethminer v0.19.0 + CUDA 11.8, sm_86; ETHASH ONLY
 ├── run-node.sh          # container entrypoint (geth init + run)
-└── docker-compose.yml   # node + stratum + miner stack (CLI and Portainer)
+└── docker-compose.yml   # node + stratum; ethminer only under ethash-legacy
 ```
 
 KawPow networks (Wheeler v2, mainnet): mine via the **stratum** service.
@@ -77,13 +81,16 @@ sudo mkdir -p /opt/docker/everett-node /opt/docker/everett-miner
 git clone https://github.com/zengjiajun0623/everett && cd everett
 docker build -f docker/node.Dockerfile    -t everett-node:local .
 docker build -f docker/stratum.Dockerfile -t everett-stratum:local .
+# legacy, ethash-legacy profile only:
 docker build -f docker/miner.Dockerfile   -t everett-miner:local .
 ```
 
 The node build runs `TestEverett` + `TestASERT` + `TestKawPow` and **fails
-the build** if any suite fails. Expect 5-20 min (node), under a minute
-(stratum: a small Go build with its own vet + test gate), and 15-30 min
-(miner: CUDA toolchain pull + ethminer compile + Boost via Hunter).
+the build** if any suite fails. Expect 5-20 min (node) and under a minute
+(stratum: a small Go build with its own vet + test gate). The miner image
+is 15-30 min (CUDA toolchain pull + ethminer compile + Boost via Hunter)
+and the default stack never runs it; build it only if you want the
+`ethash-legacy` profile.
 
 ### Portainer GUI
 
@@ -92,7 +99,8 @@ the build** if any suite fails. Expect 5-20 min (node), under a minute
    fork), *Reference:* `main` (or `docker-support` while in review).
 3. *Dockerfile path:* `docker/node.Dockerfile`; name `everett-node:local`.
 4. Repeat for `docker/stratum.Dockerfile` → `everett-stratum:local`.
-5. Repeat for `docker/miner.Dockerfile` → `everett-miner:local`.
+5. Only for the `ethash-legacy` profile: repeat for
+   `docker/miner.Dockerfile` → `everett-miner:local`.
 
 ## Deploy the stack
 
@@ -111,12 +119,14 @@ with `--profile ethash-legacy` (plus `EVERETT_KAWPOW` unset).
    (*Reference:* `main`, or the `docker-support` branch while in review).
 3. *Compose path:* `docker/docker-compose.yml`.
 4. Name it `everett`, click **Build and deploy**. Portainer clones the repo,
-   builds all three images, and starts the stack. Done.
+   builds the node and stratum images (the profile-gated miner service is
+   not built), and starts the stack. Done.
 
 **Custom-paste mode** (images already built):
 
-1. Build all three images (node, stratum, miner) via *Images → Build a
-   new image* as above (or CLI).
+1. Build the node and stratum images via *Images → Build a new image* as
+   above (or CLI); add the miner image only for the `ethash-legacy`
+   profile.
 2. **Stacks → Add stack → Web editor**, paste the contents of
    `docker/docker-compose.yml`, name it `everett`.
 3. Click **Deploy the stack** (not "Build and deploy": the images are
@@ -139,9 +149,10 @@ stack sets its own value, that is listed too.
 | `MINE` | `0` (sync-only) | `1` | `1` = enable mining (`--mine`); `0` = sync-only node |
 | `ETHERBASE` | unset | throwaway `0x1000…0001` | Coinbase address. **Required when `MINE=1`** (the entrypoint hard-fails without it). Devnet/Wheeler coins are valueless; use your own EOA to keep anything |
 | `MINER_THREADS` | `0` | `0` | Node CPU mining threads. `0` = serve `eth_getWork` only; the GPU miner does the hashing. `>0` also mines on CPU |
-| `NETWORKID` | auto from `GENESIS` | auto | 15537391 (devnet, also the fallback for absolute-path genesis; set explicitly if yours differs), 15537392 (Wheeler), 15537393 (mainnet/legacy devnet) |
+| `EVERETT_KAWPOW` | unset (ethash on the dev chain) | `1` | Algorithm selector, honored **only on the dev chain 15537391**: `1` = KawPow, unset = ethash. Activation is otherwise chain-keyed in the client: Wheeler (15537392) and mainnet (15537393) run KawPow from genesis whatever this says, and every other chain ID is forced off. Set it (as the compose stack does) for the stratum + KawPow-miner path on devnet; leave it unset for the `ethash-legacy` ethminer profile. Getting it wrong on devnet is quiet: the sidecar acks KawPow shares while the node rejects every one and no block ever lands |
+| `NETWORKID` | auto from `GENESIS` | auto | 15537391 (devnet), 15537392 (Wheeler), 15537393 (mainnet/legacy devnet). For an absolute-path genesis the entrypoint reads `chainId` out of the file itself and fails if it cannot; set this explicitly only to override |
 | `BOOTNODE` | unset | unset | Set an `enode://…@host:30303` to join a public network (Wheeler). Unset = `--nodiscover` (private devnet) |
-| `HTTP_VHOSTS` | `node,localhost,127.0.0.1` | same | Allowed HTTP `Host` headers. The default covers the compose miner and host-localhost curls without reopening the DNS-rebinding hole a `*` wildcard would |
+| `HTTP_VHOSTS` | `node,localhost,127.0.0.1` | same | Allowed HTTP `Host` headers. The default covers the in-stack clients that dial `http://node:8545` (the stratum sidecar, and the legacy miner) plus host-localhost curls, without reopening the DNS-rebinding hole a `*` wildcard would |
 | `DATADIR` | `/data` | `/data` | Node datadir (bind-mounted volume) |
 
 Wheeler mode (live testnet, chain ID 15537392; bootnode from README).
@@ -170,7 +181,7 @@ the volume and re-init.
 | Host path | Container path | Holds |
 |---|---|---|
 | `/opt/docker/everett-node` | `/data` | chaindata, keystore, geth.ipc |
-| `/opt/docker/everett-miner` | `/root/.ethash` | ethash cache (survives restarts; no full DAG rebuild) |
+| `/opt/docker/everett-miner` | `/root/.ethash` | ethash cache for the `ethash-legacy` miner only (survives restarts; no full DAG rebuild). Unused by the default stack: KawPow miners build their own DAG on the GPU host |
 
 ## Verification
 
@@ -193,10 +204,14 @@ with `PASS … delta=0`. Inside the container (`-f` is needed unless you run
 from `docker/`): `docker compose -f docker/docker-compose.yml exec node
 /usr/local/bin/verify_devnet.sh` (the image ships the audit scripts).
 
-Miner health:
+Mining health on the default stack (node + stratum):
 
 ```bash
-docker logs -f everett-miner        # **Accepted** shares, Epoch 0 Difficulty…
+docker logs -f everett-stratum
+# "kawpow-stratum listening on 0.0.0.0:3333, node http://node:8545"
+# "new job <id> height=… target=…"      the sidecar is pulling work
+# "miner connected from <ip> (extranonce …)"
+# "BLOCK: job <id> height=… nonce=… from <worker>"   the node accepted a block
 ```
 
 ```bash
@@ -206,7 +221,12 @@ curl -s -X POST -H 'Content-Type: application/json' \
 ```
 
 Portainer: the stack page shows `everett-node` (healthy) and
-`everett-miner`; open each container's *Logs* tab.
+`everett-stratum`; open each container's *Logs* tab.
+
+Under the `ethash-legacy` profile only, the ethminer container has its own
+log (`docker logs -f everett-miner`: **Accepted** shares, Epoch/Difficulty
+lines). On the default stack there is no `everett-miner` container, and
+that command answers `No such container`.
 
 Transport note: `eth_getWork` polling is fine for devnet and early Wheeler,
 but soak testing on this repo showed it churns (miner suspend/resume on

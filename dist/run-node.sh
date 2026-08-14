@@ -9,6 +9,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 DATADIR="./__NETNAME__-data"
 
+# Art. VIII: chain ID 15537393 is the reserved mainnet, which begins with a
+# launch ceremony, not by unpacking a tarball. Same guard the container
+# entrypoint carries (docker/run-node.sh); a distribution package must not
+# be the one channel that starts the reserved chain silently.
+if [ "__NETWORKID__" = "15537393" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
+  echo "run-node: this package targets chain ID 15537393, RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
+  echo "run-node: use a wheeler (testnet) package; set EVERETT_ART_VIII_CEREMONY=1 only as part of the ceremony." >&2
+  exit 1
+fi
+
 # Default bootnode: replace with the current network entry point if stale.
 BOOTNODE="${BOOTNODE:-__BOOTNODE__}"
 

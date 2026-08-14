@@ -3,7 +3,7 @@
 
 Six hooks. 1-4 branch on kawpowEnabled and fall through to stock ethash;
 hook 5 SETS kawpowEnabled from the loaded chain config (chain-keyed
-activation — consensus must never depend on local environment):
+activation; consensus must never depend on local environment):
   1. verifySeal - light KawPow verification (miners own the DAG)
   2. mine       - lazy DAG (skip the ethash one when KawPow is active)
   3. mine loop  - full-DAG KawPow hashing for node-side CPU mining
@@ -20,9 +20,10 @@ activation — consensus must never depend on local environment):
                   backend; without this hook those paths silently fell
                   back to the EVERETT_KAWPOW env var.
 
-Usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> [<eth/backend.go>] [<cmd/utils/flags.go>]
-(backend.go optional for compatibility with pre-v2 build recipes; the
-CI/Docker/boot preps all pass it).
+Usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> <eth/backend.go> <cmd/utils/flags.go>
+(all four paths are mandatory: every hook is consensus-critical under
+chain-keyed activation, so a partial pre-v2 invocation is rejected rather
+than silently skipped. The CI/Docker/boot preps all pass four paths).
 """
 import sys
 

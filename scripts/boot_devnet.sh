@@ -13,9 +13,12 @@ mkdir -p "$WORK"
 # previously duplicated a pre-KawPow subset of this, which meant a fresh
 # machine following the README built a geth that could not validate
 # Wheeler v2 or mainnet. Never fork the prep again.
+# Honor COREGETH_DIR: ci_prepare.sh preps whatever tree that names, so a
+# hardcoded path here would prep one tree and then test and build another.
+export COREGETH_DIR="${COREGETH_DIR:-$WORK/core-geth}"
 bash "$EVERETT/scripts/ci_prepare.sh"
 
-cd "$WORK/core-geth"
+cd "$COREGETH_DIR"
 echo "== unit tests (verification gates: schedule + DAA incl. exhaustive enumeration + KawPow) =="
 go test ./params/mutations/ -run TestEverett -v
 go test ./consensus/ethash/ -run TestASERT -v
@@ -23,7 +26,7 @@ go test ./consensus/ethash/ -run TestKawPow -timeout 40m
 
 echo "== build =="
 make geth
-GETH="$WORK/core-geth/build/bin/geth"
+GETH="$COREGETH_DIR/build/bin/geth"
 
 echo "== init genesis =="
 # Devnet genesis (0x20000 difficulty) by default: the production difficulty

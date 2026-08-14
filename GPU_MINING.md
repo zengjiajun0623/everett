@@ -21,7 +21,7 @@ against an Everett devnet.
 EVERETT_KAWPOW=1 geth --datadir <dir> --networkid <id> \
   --mine --miner.etherbase 0xYourAddress \
   --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3 \
-  --http.vhosts '*'
+  --http.vhosts localhost,127.0.0.1,<node-hostname>
 ```
 
 3. Point the miner at it (`-U` for CUDA, `-G` for OpenCL):
@@ -37,9 +37,17 @@ kawpowminer -U -P http://0xYourAddress@<node-ip>:8545
   finds solutions, and silently never submits them: the log fills with
   `Sol:` lines and the chain never advances. With the address, submissions
   flow and blocks land.
-- **`--http.vhosts '*'`** (or your node's hostname). geth rejects requests
-  whose Host header is not allowlisted, and the miner then reports
-  `Solution ... wasted. Waiting for connection`.
+- **The miner's Host header must be allowlisted, and `'*'` is the wrong way
+  to do it.** geth rejects requests whose Host header is not in
+  `--http.vhosts`, and the miner then reports `Solution ... wasted. Waiting
+  for connection`. List the host the miner actually dials:
+  `--http.vhosts localhost,127.0.0.1,<node-hostname>`, the same shape
+  `docker/run-node.sh` ships (`node,localhost,127.0.0.1`). If the miner
+  dials the node by IP address there is nothing to add at all: geth serves
+  any IP-literal Host header unconditionally (`node/rpcstack.go`), and the
+  allowlist only governs hostnames. Do not use `'*'`: it accepts every Host
+  header and reopens the DNS-rebinding hole the check exists to close, so
+  any page browsed on a machine that can route to this RPC could drive it.
 
 ## What the node does and does not do
 

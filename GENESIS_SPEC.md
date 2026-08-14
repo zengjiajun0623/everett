@@ -43,20 +43,35 @@ Supply shape: ~25M from the decaying term over the first decades, plus linear
 tail forever, minus burn. Inflation rate declines monotonically toward zero;
 absolute security spend never does.
 
-## 4. EVM and transaction surface at genesis
+## 4. EVM and transaction surface
 
-Launch at Cancun-equivalent EVM, minus anything requiring a beacon chain:
+**Shipped today: London.** Every genesis config in this repo (genesis.json,
+genesis-wheeler.json, genesis-dev.json, and the legacy genesis-devnet.json)
+activates the fork bundle through `londonBlock: 0` and stops there, so the
+live chains are a London EVM: no PUSH0, no TSTORE/TLOAD/MCOPY, no EIP-6780
+SELFDESTRUCT semantics, no type-3 or type-4 transactions. Practical
+consequence for contract authors: solc 0.8.20 and later default to Shanghai
+or a newer EVM target and emit PUSH0, which is an invalid opcode here, so
+compile with `--evm-version london` until the surface below ships.
 
-**Included:** all Shanghai/Cancun opcodes (PUSH0, TSTORE/TLOAD, MCOPY),
-EIP-6780 SELFDESTRUCT semantics, EIP-7702 set-code transactions, transaction
-types 0/1/2/4, standard precompiles 0x01-0x09 (0x0A is the EIP-4844 KZG
-point-evaluation precompile and is excluded with the rest of the blob layer).
+**Target at launch (open item 5a.6, not yet implemented):** Cancun-equivalent
+EVM minus anything requiring a beacon chain, i.e. all Shanghai/Cancun opcodes
+(PUSH0, TSTORE/TLOAD, MCOPY), EIP-6780 SELFDESTRUCT semantics, EIP-7702
+set-code transactions, transaction types 0/1/2/4, standard precompiles
+0x01-0x09 (0x0A is the EIP-4844 KZG point-evaluation precompile and is
+excluded with the rest of the blob layer).
 
-**Excluded:** EIP-4844 blob transactions and the KZG point-evaluation
-precompile (blob layer assumes a consensus-layer sidecar; this is an L1-first
-chain), EIP-4788, EIP-4895, PREVRANDAO semantics (opcode 0x44 returns
-difficulty, as pre-merge; contracts must not treat it as randomness, which
-they never should have anyway).
+**Excluded, permanently:** EIP-4844 blob transactions and the KZG
+point-evaluation precompile (blob layer assumes a consensus-layer sidecar;
+this is an L1-first chain), EIP-4788, EIP-4895, PREVRANDAO semantics (opcode
+0x44 returns difficulty, as pre-merge; contracts must not treat it as
+randomness, which they never should have anyway).
+
+London is where the configs stop because the forks past it bundle the EVM
+changes with the PoS-coupled features §1 removes: Shanghai carries
+withdrawals (EIP-4895), Cancun carries the beacon block root (EIP-4788) and
+the blob layer. Taking the opcodes without the couplings is fork-bundle
+surgery, not configuration (§5a.6; ETC's Spiral upgrade is the precedent).
 
 ## 5. Open items
 

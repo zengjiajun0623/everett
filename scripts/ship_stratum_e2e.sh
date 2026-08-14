@@ -36,19 +36,41 @@ MINUTES="${MINUTES:-12}"
 STRATUM_PORT=3334
 DEV_RPC=http://127.0.0.1:8555
 DEV_CHAINID=15537391
-GETH="$EVERETT/build/core-geth/build/bin/geth"
-[ -x "$GETH" ] || GETH="$EVERETT/build/ci/core-geth/build/bin/geth"
-IPC="$EVERETT/build/kawpow-dev/geth.ipc"
+GETH="${GETH:-$EVERETT/build/ci/core-geth/build/bin/geth}"
+DATA="$EVERETT/build/kawpow-e2e"
+IPC="$DATA/geth.ipc"
+NODE_LOG="$EVERETT/build/kawpow-e2e-node.log"
 
 say() { echo "[$(date +%H:%M:%S)] $*"; }
 
-say "=== 0. assert the devnet (never mine against an assumed chain) ==="
-CID=$(curl -s -m 5 -X POST -H 'Content-Type: application/json' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' "$DEV_RPC" \
-  | grep -o '0x[0-9a-f]*' || true)
-[ -n "$CID" ] || { say "FAIL: no devnet RPC at $DEV_RPC (boot one: scripts/boot_devnet.sh)"; exit 1; }
-[ "$((CID))" = "$DEV_CHAINID" ] || { say "FAIL: $DEV_RPC is chain $((CID)), expected $DEV_CHAINID; refusing to mine an unintended chain"; exit 1; }
-say "devnet OK: chain $DEV_CHAINID at $DEV_RPC"
+say "=== 0. boot our OWN KawPow devnet (dedicated ports, own datadir) ==="
+# The run boots the chain it measures. It used to require a preexisting
+# devnet on :8555 and told the operator to produce it with boot_devnet.sh,
+# which does not start a node at all: the precondition was unobtainable,
+# and a chain-ID check alone cannot tell a KawPow devnet from an ethash
+# one (same chain ID), so a mismatched chain would mine zero blocks and
+# still report success.
+[ -x "$GETH" ] || { say "FAIL: no geth at $GETH (build: scripts/ci_devnet.sh or COREGETH_DIR=... scripts/ci_prepare.sh + make geth)"; exit 1; }
+rm -rf "$DATA"
+"$GETH" --datadir "$DATA" init "$EVERETT/genesis-dev.json" >/dev/null 2>&1 \
+  || { say "FAIL: genesis init"; exit 1; }
+EVERETT_KAWPOW=1 "$GETH" --datadir "$DATA" --networkid "$DEV_CHAINID" --nodiscover --maxpeers 0 \
+  --port 30305 --authrpc.port 8553 \
+  --mine --miner.threads 0 --miner.etherbase "$PAYOUT" \
+  --http --http.port 8555 --http.api eth,net,web3 > "$NODE_LOG" 2>&1 &
+E2E_NODE=$!
+for _ in $(seq 1 30); do
+  sleep 2
+  kill -0 "$E2E_NODE" 2>/dev/null || { say "FAIL: e2e node died"; tail -20 "$NODE_LOG"; exit 1; }
+  CID=$(curl -s -m 2 -X POST -H 'Content-Type: application/json' \
+    --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' "$DEV_RPC" | grep -o '0x[0-9a-f]*' || true)
+  [ -n "$CID" ] && break
+done
+[ -n "${CID:-}" ] || { say "FAIL: e2e node never answered on $DEV_RPC"; tail -20 "$NODE_LOG"; exit 1; }
+[ "$((CID))" = "$DEV_CHAINID" ] || { say "FAIL: $DEV_RPC is chain $((CID)), expected $DEV_CHAINID"; exit 1; }
+# Algorithm proof, not assumption: the node logs which PoW it selected.
+grep -q "kawpow=true" "$NODE_LOG" || { say "FAIL: node did not select KawPow (see $NODE_LOG)"; exit 1; }
+say "devnet OK: chain $DEV_CHAINID on $DEV_RPC, KawPow confirmed in the node log"
 
 say "=== 1. build + test sidecar ==="
 cd "$EVERETT/stratum" || exit 1
@@ -62,6 +84,7 @@ SIDECAR=$!
 # pc3080, only the miner process whose command line dials :3334.
 cleanup() {
   kill "$SIDECAR" 2>/dev/null || true
+  kill "$E2E_NODE" 2>/dev/null || true
   ssh pc3080 "powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='kawpowminer.exe'\\\" | Where-Object {\$_.CommandLine -like '*:$STRATUM_PORT*'} | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; schtasks /delete /tn EverettStratum /f\"" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -122,7 +145,12 @@ cat > /tmp/mine_stratum.cmd <<CMDEOF
 C:\Users\Jiajun\kawpowminer\kawpowminer.exe -U -P stratum+tcp://$PAYOUT@$MAC_IP:$STRATUM_PORT 2>C:\Users\Jiajun\kawpowminer\strat-e2e.err
 CMDEOF
 sed -i '' 's/$/\r/' /tmp/mine_stratum.cmd 2>/dev/null || true
-scp -q /tmp/mine_stratum.cmd pc3080:mine_stratum.cmd
+# A failed copy would leave a PREVIOUS run's batch file in place, and the
+# scheduled task would happily launch a miner pointed at :3333, the
+# production sidecar. Cleanup only reaps miners dialing our own port, so
+# that rogue miner would outlive the run.
+scp -q /tmp/mine_stratum.cmd pc3080:mine_stratum.cmd \
+  || { say "FAIL: could not copy the miner batch file to pc3080 (a stale one may target the production sidecar)"; exit 1; }
 # Clear any previous E2E task/miner (matched by :3334 command line only).
 ssh pc3080 "schtasks /end /tn EverettStratum" >/dev/null 2>&1
 ssh pc3080 "powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='kawpowminer.exe'\\\" | Where-Object {\$_.CommandLine -like '*:$STRATUM_PORT*'} | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }\"" >/dev/null 2>&1
@@ -153,10 +181,21 @@ say "=== 6. collect + compare ==="
 H1=$("$GETH" attach --exec 'eth.blockNumber' "$IPC" 2>/dev/null | tr -d '"')
 D1=$("$GETH" attach --exec 'eth.getBlock(eth.blockNumber).difficulty' "$IPC" 2>/dev/null | tr -d '"')
 BLOCKS=$((H1 - H0))
-SUSPENDS=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Content \\\$env:USERPROFILE\\kawpowminer\\strat-e2e.err -ErrorAction SilentlyContinue | Select-String 'Suspend mining').Count\"" 2>/dev/null | tr -d '\r\0' | tail -1)
-ACCEPTED=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Content \\\$env:USERPROFILE\\kawpowminer\\strat-e2e.err -ErrorAction SilentlyContinue | Select-String 'Accepted').Count\"" 2>/dev/null | tr -d '\r\0' | tail -1)
-SPEED=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Content \\\$env:USERPROFILE\\kawpowminer\\strat-e2e.err -ErrorAction SilentlyContinue | Select-String 'Speed' | Select-Object -Last 1)\"" 2>/dev/null | tr -d '\r\0' | tail -1)
+SUSPENDS=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Content \$env:USERPROFILE\\kawpowminer\\strat-e2e.err -ErrorAction SilentlyContinue | Select-String 'Suspend mining').Count\"" 2>/dev/null | tr -d '\r\0' | tail -1)
+ACCEPTED=$(ssh pc3080 "powershell -NoProfile -Command \"(Get-Content \$env:USERPROFILE\\kawpowminer\\strat-e2e.err -ErrorAction SilentlyContinue | Select-String 'Accepted').Count\"" 2>/dev/null | tr -d '\r\0' | tail -1)
 BLOCKS_LOGGED=$(grep -c "BLOCK:" "$LOG" 2>/dev/null) || BLOCKS_LOGGED=0
+# Effective hashrate from work actually delivered to us, not from a miner
+# log line: kawpowminer writes only Job/Accepted records to stderr (checked
+# against a 11,880-line production log; 'Speed' and 'Mh/s' never appear),
+# so the old "last reported speed" row could never populate even with
+# correct escaping. accepted shares x share difficulty / elapsed is a
+# measurement we can defend.
+SHAREDIFF=${SHAREDIFF:-8000000}
+if [ -n "${ACCEPTED:-}" ] && [ "$ACCEPTED" -gt 0 ] 2>/dev/null; then
+  RATE_MHS=$(python3 -c "print(f'{$ACCEPTED * $SHAREDIFF / ($MINUTES * 60) / 1e6:.1f} MH/s')")
+else
+  RATE_MHS="no accepted shares"
+fi
 
 say "=== 7. stop miner + audit ==="
 # PID-scoped stop (also runs in the EXIT trap; doing it here too keeps
@@ -179,7 +218,7 @@ mining an Everett KawPow devnet through \`kawpow-stratum\` on :$STRATUM_PORT.
 | Accepted-share log lines | 0 (none reported) | $ACCEPTED |
 | Blocks logged by sidecar | n/a | $BLOCKS_LOGGED |
 | Difficulty | 131,072 → 4M then stalled | $D0 → $D1 |
-| Last reported speed | never reported | $SPEED |
+| Effective hashrate (accepted x sharediff / elapsed) | n/a | $RATE_MHS |
 
 ## Samples
 
@@ -200,5 +239,17 @@ $(tail -12 "$LOG")
 \`\`\`
 EOF
 
-say "=== DONE ==="
 cat "$REPORT"
+
+# The run must PROVE mining happened. Without this, a miner that connected
+# but never landed a block (wrong algorithm, wrong dialect, dead GPU) wrote
+# a report full of zeros and exited 0, which reads as success.
+if [ "$BLOCKS" -le 0 ] 2>/dev/null; then
+  say "FAIL: zero blocks mined in $MINUTES minutes; the sidecar path did not work (report above)"
+  exit 1
+fi
+if [ -z "${ACCEPTED:-}" ] || [ "$ACCEPTED" -le 0 ] 2>/dev/null; then
+  say "FAIL: no accepted shares recorded on pc3080; the miner never reached us"
+  exit 1
+fi
+say "=== DONE: $BLOCKS blocks, $ACCEPTED accepted shares, $RATE_MHS ==="

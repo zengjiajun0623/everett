@@ -87,26 +87,42 @@ In a second terminal, audit your own chain against the constitution:
 scripts/verify_devnet.sh
 ```
 
-`verify_rewards.py` recomputes Article III independently in Python and
-demands your miner balance match it wei for wei; `burn_audit.py` does full
-supply accounting including uncles (Art. III.5) and the 1559 burn (Art. IV).
+That script asserts you are auditing the chain you meant to (`EXPECT_CHAINID`,
+default the dev chain 15537391), checks the genesis is London-active and
+carries no proof-of-stake fields (`baseFeePerGas` present, no
+`withdrawalsRoot`), then runs `burn_audit.py`: a full independent
+recomputation in Python of rewards, uncles (Art. III.5) and the 1559 burn
+(Art. IV) that demands every account, your miner included, match wei for
+wei. `verify_rewards.py` is not part of this flow; it remains available on
+its own as the strict single-miner gate, with genesis pinning via
+`EXPECT_GENESIS`.
 
 ## Docker / Portainer quickstart
 
 GPU mining stack for a headless server: the node (built from source in
 Docker, verification gates included in the build; a failed gate fails the
-image) plus an external ethminer over RPC. Portainer-ready; no prebuilt
-binaries, no secrets.
+image) plus the `kawpow-stratum` sidecar, which serves work on port 3333
+to any stock KawPow miner. That is the default stack, on the devnet
+genesis with KawPow selected (`EVERETT_KAWPOW=1`); it runs no miner
+container of its own. The bundled ethminer image is ethash-only legacy
+plumbing and starts only under `--profile ethash-legacy`.
+Portainer-ready; no prebuilt binaries, no secrets.
 
 ```bash
 docker build -f docker/node.Dockerfile    -t everett-node:local .
 docker build -f docker/stratum.Dockerfile -t everett-stratum:local .
-docker build -f docker/miner.Dockerfile   -t everett-miner:local .
 docker compose -f docker/docker-compose.yml up -d --build
 curl -s -X POST -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
   http://127.0.0.1:8545     # 0xed14ef devnet, 0xed14f0 Wheeler
+kawpowminer -U -P stratum+tcp://0xYou@<host>:3333   # from any GPU box
 ```
+
+Payouts go to the node's `ETHERBASE` (set it in the compose file); the
+stratum username is logging only and never reaches the chain.
+`docker build -f docker/miner.Dockerfile -t everett-miner:local .` is
+needed only for the legacy `ethash-legacy` profile: a 15-30 min CUDA
+build the default stack never runs.
 
 Full walkthrough (Portainer GUI build + deploy, env table, verification,
 safety notes): [docker/README.md](docker/README.md).

@@ -63,5 +63,12 @@ assert g["stateRoot"] == "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc00162
 print("genesis identity OK:", g["hash"])
 PY
 
+# Run the OPERATOR verification script itself, not just its audit step.
+# It is the flow every joiner is told to run (README, RUNBOOK, the node
+# image), and until this line nothing executed it: a syntax error in it
+# shipped green through a full audit round. Same hermetic port and chain
+# guard as everything else here.
+RPC="http://127.0.0.1:$E2E_HTTP" EXPECT_CHAINID=15537391 bash "$EVERETT/scripts/verify_devnet.sh"
+
 RPC=http://127.0.0.1:8546 EXPECT_CHAINID=15537391 python3 "$EVERETT/scripts/burn_audit.py"
 echo "devnet e2e gate PASSED"

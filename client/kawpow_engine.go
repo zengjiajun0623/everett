@@ -149,7 +149,11 @@ func kawpowGenerateDataset(dest []uint32, cache []uint32) {
 			}
 			for index := first; index < limit; index++ {
 				item := kawpowGenerateDatasetItem(cache, index, keccak512)
-				copy(dest[index*hashWords:], asUint32Slice(item))
+				// uint64 for the word offset: index is a 64-byte item
+				// number, so index*hashWords crosses uint32 at a 16 GiB
+				// DAG (epoch 1921), the same wrap the loop's DAG offsets
+				// had. Item numbers themselves stay exact to 256 GiB.
+				copy(dest[uint64(index)*hashWords:], asUint32Slice(item))
 			}
 		}(uint32(i))
 	}

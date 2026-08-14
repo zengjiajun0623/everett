@@ -93,17 +93,42 @@ def follow_head():
                     S.chain_id = hx(rpc("eth_chainId"))
                 known = S.head
             lo = max(1, head - WINDOW)
-            # re-check the last few for reorgs, then fetch anything new
-            recheck = range(max(lo, known - 8), known + 1) if known else []
+            # Drop anything ABOVE the current head first. A reorg to a
+            # higher-total-difficulty but SHORTER chain (ASERT swings make
+            # that reachable) or an operator resync leaves orphaned blocks
+            # that no re-fetch can correct: heights above head return None,
+            # so the stale entries would survive and the tip, charts, and
+            # intervals would mix two chains.
+            with S.lock:
+                for n in [n for n in S.blocks if n > head]:
+                    del S.blocks[n]
+            # Re-check recent blocks for same-height reorgs. The window is
+            # adaptive: at least 8, and always back to the deepest block
+            # whose hash we have not re-read since the head last moved.
+            depth = max(8, min(WINDOW, head - known + 8)) if known else 8
+            recheck = range(max(lo, known - depth), known + 1) if known else []
             fetch = list(recheck) + list(range(max(lo, known + 1), head + 1))
+            reorged = False
             for n in fetch:
                 b = fetch_block(n)
                 if b is None:
                     continue
                 with S.lock:
                     old = S.blocks.get(n)
+                    if old is not None and old["hash"] != b["hash"]:
+                        reorged = True
                     if old is None or old["hash"] != b["hash"]:
                         S.blocks[n] = b
+            # A reorg at the edge of the window means deeper blocks may
+            # also have changed; sweep the whole window once to converge.
+            if reorged:
+                for n in list(range(lo, head + 1)):
+                    b = fetch_block(n)
+                    if b is None:
+                        continue
+                    with S.lock:
+                        if S.blocks.get(n, {}).get("hash") != b["hash"]:
+                            S.blocks[n] = b
             with S.lock:
                 S.head = head
                 for n in list(S.blocks):
@@ -141,24 +166,35 @@ def kill_stale_audits():
     """
     pattern = " ".join(AUDIT_CMD)
     try:
-        out = subprocess.run(["ps", "-axo", "pid=,command="],
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
                              capture_output=True, text=True, timeout=10).stdout
     except Exception:
         return
     for line in out.splitlines():
-        pid_s, _, cmd = line.strip().partition(" ")
-        if cmd.strip() != pattern or not pid_s.isdigit():
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
             continue
-        pid = int(pid_s)
+        pid_s, ppid_s, cmd = parts
+        if cmd.strip() != pattern or not pid_s.isdigit() or not ppid_s.isdigit():
+            continue
+        pid, ppid = int(pid_s), int(ppid_s)
+        # ORPHANS ONLY. A live parent means this audit belongs to a running
+        # dashboard (a second instance on another port is a legitimate
+        # thing to start); killing it would blank that dashboard's audit
+        # tile. Orphans are reparented to init, so ppid == 1.
+        if ppid != 1:
+            continue
         try:
-            # new-style children lead their own group; kill the whole group
-            os.killpg(pid, signal.SIGKILL)
-        except OSError:
-            try:  # orphans from older dashboards are not group leaders
+            # killpg only when the pid really leads its own group: pid
+            # recycling could otherwise make this signal an unrelated
+            # group that happens to share the number.
+            if os.getpgid(pid) == pid:
+                os.killpg(pid, signal.SIGKILL)
+            else:
                 os.kill(pid, signal.SIGKILL)
-            except OSError:
-                continue
-        print(f"killed stale burn_audit pid {pid}")
+        except OSError:
+            continue
+        print(f"killed orphaned burn_audit pid {pid}")
 
 
 def _kill_audit_group():

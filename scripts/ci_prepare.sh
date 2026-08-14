@@ -25,11 +25,22 @@ fetch_pin() {
   git -C "$COREGETH_DIR" fetch --depth 1 origin "$COREGETH_COMMIT"
   git -C "$COREGETH_DIR" checkout FETCH_HEAD
 }
+# Never delete a tree something is currently running from. The launchd
+# production node execs $COREGETH_DIR/build/bin/geth on an operator host;
+# an automatic wipe there would kill the live chain to fix a git problem.
+in_use() { pgrep -f "^$COREGETH_DIR/build/bin/geth" >/dev/null 2>&1; }
+
 if [ ! -d "$COREGETH_DIR" ]; then
   fetch_pin
 elif ! HAVE=$(git -C "$COREGETH_DIR" rev-parse HEAD 2>/dev/null); then
   # Directory exists but has no valid HEAD: debris from an interrupted
-  # first fetch. Self-heal instead of surfacing a raw git fatal.
+  # first fetch. Self-heal, unless a live node is running out of it.
+  if in_use; then
+    echo "FAIL: $COREGETH_DIR has no valid HEAD, but a node is RUNNING from it." >&2
+    echo "      Refusing to wipe a live node's tree. Stop the node first, or" >&2
+    echo "      prep elsewhere: COREGETH_DIR=\$PWD/build/ci/core-geth $0" >&2
+    exit 1
+  fi
   echo "WARN: $COREGETH_DIR has no valid HEAD (interrupted fetch?); refetching pin" >&2
   rm -rf "$COREGETH_DIR"
   fetch_pin

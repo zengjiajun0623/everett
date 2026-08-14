@@ -27,7 +27,15 @@ case "$GENESIS" in
   genesis-devnet.json)  NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis-wheeler.json) NETWORKID="${NETWORKID:-15537392}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
   genesis.json)         NETWORKID="${NETWORKID:-15537393}"; GENESIS_FILE="/etc/everett/$GENESIS" ;;
-  /*)                   NETWORKID="${NETWORKID:-15537391}"; GENESIS_FILE="$GENESIS" ;;
+  # Absolute path: derive the network ID from the genesis CONTENT. The old
+  # default (15537391) silently put a node carrying someone else's genesis
+  # on the dev network's wire protocol, where it could find no peers and
+  # would have been rejected by the ones it wanted.
+  /*)                   GENESIS_FILE="$GENESIS"
+                        if [ -z "${NETWORKID:-}" ]; then
+                          NETWORKID=$(sed -n 's/.*"chainId"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$GENESIS_FILE" | head -1)
+                          [ -n "$NETWORKID" ] || { echo "run-node: cannot read chainId from $GENESIS_FILE; pass NETWORKID explicitly" >&2; exit 1; }
+                        fi ;;
   *) echo "run-node: unsupported GENESIS='$GENESIS' (use genesis-dev.json, genesis-wheeler.json, genesis.json, genesis-devnet.json [legacy], or an absolute path)" >&2; exit 1 ;;
 esac
 
@@ -42,8 +50,8 @@ if [ ! -f "$GENESIS_FILE" ]; then
   echo "run-node: genesis file not found: $GENESIS_FILE" >&2
   exit 1
 fi
-if grep -Eq '"chainId"[[:space:]]*:[[:space:]]*15537393' "$GENESIS_FILE" \
-   && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
+GENESIS_CHAINID=$(tr -d ' \n\t\r' < "$GENESIS_FILE" | sed -n 's/.*"chainId":\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ "$GENESIS_CHAINID" = "15537393" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
   echo "run-node: $GENESIS carries chain ID 15537393, RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
   echo "run-node: use genesis-dev.json (devnet) or genesis-wheeler.json (testnet); set EVERETT_ART_VIII_CEREMONY=1 only as part of the ceremony." >&2
   echo "run-node: (legacy genesis-devnet.json stacks: those datadirs need a pre-flip build anyway; see docker/README.md.)" >&2

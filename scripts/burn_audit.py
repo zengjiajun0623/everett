@@ -117,5 +117,12 @@ if not ok:
     sys.exit("FAIL: account model diverges from chain state")
 if txs and burned <= 0:
     sys.exit("FAIL: transactions occurred but nothing burned")
-print("PASS: every account exact; base fees provably destroyed" if txs
-      else "PASS (no txs yet): reward accounting exact; send a tx to test the burn")
+_exact = len(bal) - len(inexact)
+if inexact:
+    # Do not claim more than the model checked: contract-touched accounts
+    # were SKIPped above, so "every account exact" would be false.
+    print(f"PASS: {_exact} directly-modeled accounts exact, {len(inexact)} contract-touched skipped;"
+          " base fees provably destroyed")
+else:
+    print("PASS: every account exact; base fees provably destroyed" if txs
+          else "PASS (no txs yet): reward accounting exact; send a tx to test the burn")

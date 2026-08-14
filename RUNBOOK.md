@@ -173,9 +173,19 @@ Five jobs run on every push and PR:
    under the pinned elan toolchain) and greps `fv/*.lean` for `sorry`,
    so the machine-checked Article III claims gate every push too.
 
-Every gate has been negative-controlled: mutating KawPow's period (3→4) or
-the constitution's decay constant (993→990) makes the corresponding job
-fail, so a green run means something.
+Negative controls, honestly scoped. Two mutations are on record and both
+fail their job: KawPow's period (3→4) fails the consensus unit gates
+(`TestKawPow`), and the constitution's decay constant (993→990) fails the
+constitution-vs-implementation gate. Those runs date from the three-job CI
+(consensus, consistency, devnet e2e), which the 2026-08-13 entry below
+records as negative-controlled. The two jobs added since, the stratum
+sidecar gates and the formal-verification job, have **not** been
+negative-controlled: nothing on record shows a real regression making them
+red, so read a green run there as "the checks passed", not as "the checks
+were shown able to fail". The missing controls would be, e.g., breaking
+`toCompact` to show job 3's `TestToCompactRoundTrip` /
+`TestShareTargetBoundaries` go red, and flipping a constant in `fv/*.lean`
+to show job 5's `lake build` does.
 
 ## 2026-08-13 (overnight): G6 KawPow, end to end
 
