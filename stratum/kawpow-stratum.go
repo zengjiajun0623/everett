@@ -44,6 +44,14 @@ var (
 const (
 	// maxClients caps concurrent miner connections (see handle()).
 	maxClients = 128
+	// maxPerIP caps connections from ONE host. The submit budget is
+	// per-client, so without this a single machine multiplies its budget by
+	// opening more sockets: ten connections from one host measurably
+	// degraded the honest miner's delivery in testing. Four is generous for
+	// a real rig (several miner instances behind one address) and removes
+	// the multiplier. Loopback is exempt: the operator's own tooling and
+	// the e2e harness connect from there.
+	maxPerIP = 4
 	// handshakeTimeout bounds an UNAUTHORIZED connection. A real miner
 	// subscribes and authorizes within milliseconds; a socket that opens
 	// and says nothing is a squatter holding a 64 KiB buffer and a slot.
@@ -209,6 +217,12 @@ func (c *client) takeToken() bool {
 	return true
 }
 
+// exemptLoopback lets the operator's own tooling (and the e2e harness)
+// open as many local connections as it likes. Tests flip it off, since
+// every test connection is loopback and the cap would otherwise be
+// unexercised by construction.
+var exemptLoopback = true
+
 // isHex reports whether s is non-empty and all lowercase-or-digit hex.
 func isHex(s string) bool {
 	if s == "" {
@@ -364,12 +378,27 @@ func handle(conn net.Conn) {
 	// scanner buffer and an entry in the clients map for as long as it
 	// stays open. A solo sidecar serves a handful of rigs; 128 is far
 	// above any real fleet and far below a resource problem.
+	host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	mu.Lock()
 	if len(clients) >= maxClients {
 		mu.Unlock()
 		log.Printf("refusing %s: %d clients already connected (cap)", conn.RemoteAddr(), maxClients)
 		conn.Close()
 		return
+	}
+	if !(exemptLoopback && (host == "127.0.0.1" || host == "::1")) {
+		same := 0
+		for c := range clients {
+			if h, _, err := net.SplitHostPort(c.RemoteAddr().String()); err == nil && h == host {
+				same++
+			}
+		}
+		if same >= maxPerIP {
+			mu.Unlock()
+			log.Printf("refusing %s: %d connections already from that host (per-IP cap)", conn.RemoteAddr(), same)
+			conn.Close()
+			return
+		}
 	}
 	extraSeq++
 	c := &client{conn: conn, enc: json.NewEncoder(conn),

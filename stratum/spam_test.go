@@ -141,3 +141,59 @@ func TestSpamClientCannotStarveHonestMiner(t *testing.T) {
 	t.Logf("honest submits delivered: %d, total node calls: %d, spam skipped: %d",
 		honestSeen.Load(), nodeCalls.Load(), forwardsSkipped.Load())
 }
+
+// TestPerIPCapStopsBudgetMultiplication: the submit budget is per client,
+// so one host opening many clients multiplies it. Before the per-IP cap,
+// ten connections from a single address measurably degraded the honest
+// miner's delivery. Loopback is exempt in production (operator tooling),
+// and every test connection is loopback, so the exemption is switched off
+// here or the cap would be unexercised by construction.
+func TestPerIPCapStopsBudgetMultiplication(t *testing.T) {
+	saveExempt := exemptLoopback
+	exemptLoopback = false
+	defer func() { exemptLoopback = saveExempt }()
+
+	mu.Lock()
+	saved := clients
+	clients = map[net.Conn]*client{}
+	mu.Unlock()
+	defer func() { mu.Lock(); clients = saved; mu.Unlock() }()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handle(conn)
+		}
+	}()
+
+	// Open well past the cap from one host, keeping each socket alive.
+	const attempts = 12
+	var held []net.Conn
+	for i := 0; i < attempts; i++ {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			break
+		}
+		held = append(held, c)
+		defer c.Close()
+		time.Sleep(15 * time.Millisecond) // let handle() register or refuse
+	}
+
+	mu.Lock()
+	registered := len(clients)
+	mu.Unlock()
+	if registered > maxPerIP {
+		t.Fatalf("per-IP cap did not hold: %d connections registered from one host, cap is %d",
+			registered, maxPerIP)
+	}
+	t.Logf("attempted %d connections from one host, %d registered (cap %d)",
+		attempts, registered, maxPerIP)
+}
