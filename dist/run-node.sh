@@ -31,7 +31,14 @@ ARGS=(--datadir "$DATADIR" --networkid __NETWORKID__ --port "${PORT:-30303}"
       --bootnodes "$BOOTNODE" --nat any
       --http --http.port "${HTTP_PORT:-8545}" --http.api eth,net,web3)
 if [ "${MINE:-0}" = "1" ]; then
-  ARGS+=(--mine --miner.threads "${THREADS:-1}"
+  # core-geth reads --miner.threads 0 as "use every core"; only a NEGATIVE
+  # value disables local mining (consensus/ethash/sealer.go). The README
+  # here documents THREADS=0 as "serve work, no CPU mining", so translate
+  # it, exactly as the container entrypoint does. Passing 0 through would
+  # CPU-mine KawPow on every core and build a ~1 GiB DAG in RAM.
+  THREADS_FLAG="${THREADS:-1}"
+  [ "$THREADS_FLAG" = "0" ] && THREADS_FLAG=-1
+  ARGS+=(--mine --miner.threads "$THREADS_FLAG"
          --miner.etherbase "${ETHERBASE:?set ETHERBASE=0xYourAddress to mine}")
 fi
 exec ./geth "${ARGS[@]}"

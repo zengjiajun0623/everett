@@ -74,9 +74,38 @@ fi
 
 mkdir -p "$DATADIR"
 
+CHAINMARK="$DATADIR/.everett-chainid"
 if [ ! -d "$DATADIR/geth/chaindata" ]; then
   echo "== init chain from $GENESIS_FILE =="
   geth --datadir "$DATADIR" init "$GENESIS_FILE"
+  echo "$GENESIS_CHAINID" > "$CHAINMARK"
+else
+  # A volume holds whatever chain it was INITIALIZED with. Switching
+  # GENESIS on an existing volume (the documented way to move a stack from
+  # devnet to Wheeler) used to keep serving the OLD chain under the NEW
+  # --networkid: every handshake fails on the genesis mismatch, so the node
+  # sits at zero peers on old blocks with no error, and the operator
+  # believes they joined. Refuse instead. boot_devnet.sh guards the same
+  # scenario for the source path.
+  if [ ! -f "$CHAINMARK" ]; then
+    # Volume from an older image: identify it once, then cache.
+    HAVE=$(geth --datadir "$DATADIR" --port 30399 --nodiscover --maxpeers 0 \
+      console --exec 'eth.chainId()' 2>/dev/null | tr -d '"' | tr -d '\r')
+    case "$HAVE" in
+      ''|*[!0-9]*) HAVE="" ;;   # probe failed (locked datadir, old geth): stay quiet
+    esac
+    [ -n "$HAVE" ] && echo "$HAVE" > "$CHAINMARK"
+  fi
+  if [ -f "$CHAINMARK" ]; then
+    HAVE=$(cat "$CHAINMARK")
+    if [ "$HAVE" != "$GENESIS_CHAINID" ]; then
+      echo "run-node: this volume holds chain $HAVE, but GENESIS=$GENESIS selects chain $GENESIS_CHAINID." >&2
+      echo "run-node: running it would serve the OLD chain under --networkid $GENESIS_CHAINID:" >&2
+      echo "run-node: no peer would accept the handshake and the node would look joined while it is not." >&2
+      echo "run-node: use a fresh volume for the new chain, or wipe this one." >&2
+      exit 1
+    fi
+  fi
 fi
 
 # vhosts: only the hostnames that actually reach this RPC — the miner
