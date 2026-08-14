@@ -56,7 +56,12 @@ else
   # An existing datadir holds whatever chain it was INITIALIZED with. Taking
   # --networkid from the GENESIS env while reusing that datadir silently
   # put the old chain on a different wire protocol. Refuse the mismatch.
-  HAVE_GENESIS=$("$GETH" --datadir "$DATADIR" --port 30399 --nodiscover --maxpeers 0 \
+  # Dedicated ports on BOTH probes. geth starts the full stack before it
+  # evaluates --exec, so it binds the default authrpc 8551 unless told
+  # otherwise; on a host already running a node that bind fails, geth dies
+  # before printing, and the fail-closed check below then misdiagnoses it
+  # as an unreadable datadir and tells the operator to stop production.
+  HAVE_GENESIS=$("$GETH" --datadir "$DATADIR" --port 30399 --authrpc.port 8557 --nodiscover --maxpeers 0 \
     console --exec 'eth.getBlock(0).hash' 2>/dev/null | grep -o '[0-9a-f]\{64\}' | head -1 || true)
   WANT_GENESIS=$(python3 - "$GETH" "$GENESIS_FILE" <<'PYEOF'
 import subprocess, sys, tempfile, os, shutil
@@ -64,7 +69,8 @@ geth, gen = sys.argv[1], sys.argv[2]
 d = tempfile.mkdtemp()
 try:
     subprocess.run([geth, "--datadir", d, "init", gen], capture_output=True, check=True)
-    out = subprocess.run([geth, "--datadir", d, "--port", "30397", "--nodiscover",
+    out = subprocess.run([geth, "--datadir", d, "--port", "30397",
+                          "--authrpc.port", "8558", "--nodiscover",
                           "--maxpeers", "0", "console", "--exec", "eth.getBlock(0).hash"],
                          capture_output=True, text=True)
     import re

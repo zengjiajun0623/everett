@@ -374,6 +374,12 @@ func handle(conn net.Conn) {
 			c.send(respMsg{ID: m.ID, Result: []interface{}{nil, c.extranonce}})
 		case "mining.authorize":
 			c.authorized = true
+			// Arm the generous window NOW. The loop sets it at the TOP of
+			// the next iteration, so without this a miner that authorizes
+			// and then waits for its first job (or simply mines slowly)
+			// still carried the absolute connect+handshakeTimeout deadline
+			// and was dropped 60s after connecting.
+			_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
 			if len(m.Params) > 0 {
 				c.worker, _ = m.Params[0].(string)
 			}

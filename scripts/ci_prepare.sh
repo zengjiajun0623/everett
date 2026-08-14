@@ -31,7 +31,7 @@ fetch_pin() {
 # path, and it is the README's headline command) would relink the live
 # node's binary underneath it. Deliberate deployment sets EVERETT_DEPLOY=1;
 # everything else is refused with a pointer to an isolated tree.
-in_use() { pgrep -f "^$COREGETH_DIR/build/bin/geth" >/dev/null 2>&1; }
+in_use() { pgrep -f "^$COREGETH_DIR/build/bin/geth( |$)" >/dev/null 2>&1; }
 if in_use && [ "${EVERETT_DEPLOY:-0}" != "1" ]; then
   echo "FAIL: a node is RUNNING from $COREGETH_DIR." >&2
   echo "      Preparing it would rebuild the live node's binary underneath it." >&2

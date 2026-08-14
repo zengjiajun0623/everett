@@ -89,10 +89,17 @@ else
   # scenario for the source path.
   if [ ! -f "$CHAINMARK" ]; then
     # Volume from an older image: identify it once, then cache.
-    HAVE=$(geth --datadir "$DATADIR" --port 30399 --nodiscover --maxpeers 0 \
+    # eth.chainId() has no console output formatter in the pinned tree, so
+    # it returns the raw RPC QUANTITY: "0xed14f0", not 15537392. Accepting
+    # only decimal digits therefore discarded every real answer and made
+    # this guard a permanent no-op for exactly the legacy volumes it
+    # exists to protect. Probe on dedicated ports too: the defaults are
+    # the ones a running node already holds.
+    HAVE=$(geth --datadir "$DATADIR" --port 30399 --authrpc.port 8559 --nodiscover --maxpeers 0 \
       console --exec 'eth.chainId()' 2>/dev/null | tr -d '"' | tr -d '\r')
     case "$HAVE" in
-      ''|*[!0-9]*) HAVE="" ;;   # probe failed (locked datadir, old geth): stay quiet
+      0x*|0X*) HAVE=$(printf '%d' "$HAVE" 2>/dev/null || echo "") ;;
+      ''|*[!0-9]*) HAVE="" ;;
     esac
     [ -n "$HAVE" ] && echo "$HAVE" > "$CHAINMARK"
   fi

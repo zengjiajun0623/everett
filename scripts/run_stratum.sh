@@ -19,7 +19,9 @@ LISTEN="${LISTEN:-:3333}"
 # port makes one of the two processes exit on bind failure: either way the
 # GPU fleet's connection dies. Deliberate redeploys set FORCE=1 (and
 # restart the service); everything else gets its own path and port.
-if pgrep -f "^$BIN" >/dev/null 2>&1 && [ "${FORCE:-0}" != "1" ]; then
+# Anchor BOTH ends: "^$BIN" alone also matches $BIN-e2e, the sidecar the
+# end-to-end harness builds, so a harness run would make this refuse.
+if pgrep -f "^$BIN( |$)" >/dev/null 2>&1 && [ "${FORCE:-0}" != "1" ]; then
   echo "FAIL: the production stratum sidecar is running from $BIN." >&2
   echo "      Building here would relink the live service's binary." >&2
   echo "      For a scratch instance:" >&2

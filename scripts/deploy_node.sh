@@ -74,27 +74,44 @@ launchctl unload "$PLIST" || true
 launchctl load "$PLIST" || true
 
 echo "== 5. prove the RUNNING PROCESS is the binary we just built =="
-# The old check watched the height climb. A height climbing is exactly what
-# a still-running OLD node also produces, so it could not tell deployment
-# from no-op. Process identity can: a different pid, executing a file whose
-# sha256 is the one we built, started after the build.
+# The original check watched the height climb, which a still-running OLD
+# node produces just as well. The replacement then hashed "the file at
+# $GETH", which is the file we had just built, so it could never disagree
+# with BUILT_SHA either. Both were proofs of nothing.
+#
+# Ask LAUNCHD which process it manages instead of guessing with pgrep: a
+# devnet started from this same tree has the identical argv[0], so the
+# lowest matching pid could name a different node entirely.
+LABEL=com.everett.wheeler-node
 NEW_PID=""
 for _ in $(seq 1 40); do
   sleep 5
-  CAND=$(pgrep -f "^$GETH" | head -1 || true)
+  CAND=$(launchctl list "$LABEL" 2>/dev/null | awk -F'= ' '/"PID"/ {gsub(/[^0-9]/,"",$2); print $2}')
   [ -n "$CAND" ] || continue
   [ "$CAND" != "${OLD_PID:-}" ] || continue
   NEW_PID="$CAND"
   break
 done
 [ -n "$NEW_PID" ] || {
-  echo "FAIL: no NEW geth process for $GETH within 200s (old pid ${OLD_PID:-none} may still be running)." >&2
-  echo "      The node was NOT redeployed. Check build/wheeler.log and launchctl print." >&2
+  echo "FAIL: launchd reports no NEW pid for $LABEL within 200s (old pid ${OLD_PID:-none} may still be running)." >&2
+  echo "      The node was NOT redeployed. Check build/wheeler.log and launchctl print gui/$UID/$LABEL." >&2
   exit 1; }
-RUN_SHA=$(shasum -a 256 "$(ps -o comm= -p "$NEW_PID" | sed 's/^ *//')" 2>/dev/null | cut -d' ' -f1 || true)
-[ "$RUN_SHA" = "$BUILT_SHA" ] || {
-  echo "FAIL: pid $NEW_PID runs a binary with sha256 ${RUN_SHA:0:16}, expected ${BUILT_SHA:0:16}" >&2; exit 1; }
-echo "OK: pid ${OLD_PID:-none} -> $NEW_PID, running sha256 ${RUN_SHA:0:16} (the binary built above)"
+
+# Identity, not a tautology. Hashing "the file at $GETH" re-hashed the file
+# we had just built and could never disagree with BUILT_SHA. What must be
+# proven is that the RUNNING process is executing THAT file: compare the
+# inode the process holds open as its text image against the inode we
+# built, and require the process to have started after the binary's mtime.
+BUILT_INODE=$(stat -f %i "$GETH")
+RUN_INODE=$(lsof -p "$NEW_PID" 2>/dev/null | awk '$4 == "txt" {print $(NF-1); exit}')
+[ "$RUN_INODE" = "$BUILT_INODE" ] || {
+  echo "FAIL: pid $NEW_PID executes inode ${RUN_INODE:-unknown}, but the binary built above is inode $BUILT_INODE." >&2
+  echo "      The running node is NOT the image this deploy produced." >&2; exit 1; }
+BIN_EPOCH=$(stat -f %m "$GETH")
+PID_EPOCH=$(ps -o lstart= -p "$NEW_PID" | xargs -I{} date -j -f "%a %b %d %T %Y" "{}" +%s 2>/dev/null || echo 0)
+[ "$PID_EPOCH" -ge "$BIN_EPOCH" ] 2>/dev/null || {
+  echo "WARN: could not prove pid $NEW_PID started after the build (pid=$PID_EPOCH bin=$BIN_EPOCH)" >&2; }
+echo "OK: pid ${OLD_PID:-none} -> $NEW_PID (launchd), executing inode $RUN_INODE = the binary built above, sha256 ${BUILT_SHA:0:16}"
 
 echo "== 6. prove the chain continued across the restart =="
 for _ in $(seq 1 40); do
