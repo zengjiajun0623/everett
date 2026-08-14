@@ -49,12 +49,41 @@ consensus rules. Its public bootnode:
 enode://ad614b8cc1737cdaeaa38706ef131c924a37e507bc8d1e76897037056d6c67bfafca8ed4c65e6be76ed319f38c89a6a5f9acb75b8da822146fc6cc4d9d117b5f@71.183.54.11:30303
 ```
 
-Wheeler runs KawPow (as mainnet will): sync trustlessly with the Docker
-stack below or a source build, and mine with any stock KawPow miner
-pointed at the bundled stratum service
-(`kawpowminer -U -P stratum+tcp://0xYou@<host>:3333`). Nobody's
-permission required; that is the point. Wheeler coins are valueless
-test material.
+Wheeler runs KawPow (as mainnet will). Nobody's permission is required;
+that is the point. Wheeler coins are valueless test material.
+
+To join, from a clean machine with `git`, Go 1.22+ and Python 3:
+
+```bash
+git clone https://github.com/zengjiajun0623/everett && cd everett
+scripts/ci_prepare.sh                 # fetch the pinned core-geth, apply the Everett patches
+(cd build/core-geth && make geth)     # ~5 min
+
+GETH=build/core-geth/build/bin/geth
+$GETH --datadir ~/wheeler-data init genesis-wheeler.json
+$GETH --datadir ~/wheeler-data --networkid 15537392 \
+  --bootnodes "enode://ad614b8cc1737cdaeaa38706ef131c924a37e507bc8d1e76897037056d6c67bfafca8ed4c65e6be76ed319f38c89a6a5f9acb75b8da822146fc6cc4d9d117b5f@71.183.54.11:30303" \
+  --http --http.api eth,net,web3
+```
+
+**How to tell it worked.** The `init` step must print genesis hash
+`abd9ba..5e8934`. Within a minute of starting, the log should show
+`Imported new chain segment` lines and the height should climb:
+
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+  http://127.0.0.1:8545
+```
+
+If that stays at `0x0` while `net_peerCount` is non-zero, you are running
+an unpatched client: it handshakes and then cannot verify a single block
+(see the warning below). Verified on 2026-08-14: a fresh datadir following
+these exact steps synced 7,499 blocks from the bootnode.
+
+To mine, point any stock KawPow miner at the bundled stratum service
+(`kawpowminer -U -P stratum+tcp://worker@<host>:3333`); rewards go to the
+node's `--miner.etherbase`.
 
 **WARNING: a stock geth or core-geth build cannot follow this chain.**
 The genesis deliberately carries no custom fields, so an unpatched node
