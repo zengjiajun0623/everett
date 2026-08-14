@@ -142,7 +142,9 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
   package sim-verified (synced to head via bootnode discovery). Bootnode
   currently LAN; Tailscale installed, awaiting login: then rebake with
   `NET=wheeler BOOTNODE=enode://<key>@<ts-ip>:30303 scripts/make_dist.sh`
-  (key in dist/wheeler-bootnode.txt). Mainnet chain ID 15537393 reserved
+  (the enode literal now lives in README.md and as the BOOTNODE
+  default in scripts/join_wheeler_wsl.sh; dist/wheeler-bootnode.txt was a
+  third, unmaintained copy and was deleted in 19a64d1). Mainnet chain ID 15537393 reserved
   for the Art. VIII ceremony: never start it casually.
 - 2026-08-13: **Wheeler went public.** Repo public. Bootnode reachable on
   the open internet at 71.183.54.11:30303 via NAT-PMP mappings (router

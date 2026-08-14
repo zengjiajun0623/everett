@@ -332,9 +332,26 @@ class H(BaseHTTPRequestHandler):
     # below bounds the whole connection, which is what actually matters.
     timeout = 10
     max_connection_seconds = 30
+    # The deadline above bounds each connection's LIFETIME, not how many
+    # exist. ThreadingHTTPServer accepts without limit, so a LAN script
+    # opening sockets faster than they expire exhausts the process's file
+    # descriptors: accept() then fails, real viewers cannot connect, and
+    # the dashboard's own RPC and audit calls start erroring, which paints
+    # a misleading "node down" tile while the node is fine. The semaphore
+    # bounds concurrency; beyond it a connection is closed immediately
+    # rather than queued, so an attacker cannot bank pending work either.
+    _slots = threading.BoundedSemaphore(64)
 
     def setup(self):
+        self._got_slot = H._slots.acquire(blocking=False)
         super().setup()
+        if not self._got_slot:
+            self.close_connection = True
+            try:
+                self.connection.close()
+            except OSError:
+                pass
+            return
         self.connection.settimeout(self.timeout)
         # A hard stop on the whole connection. settimeout() only bounds
         # SILENCE (it re-arms on every byte), so a client dripping a byte
@@ -342,7 +359,7 @@ class H(BaseHTTPRequestHandler):
         # the socket outright at the deadline, which unblocks the reading
         # thread no matter what the client is doing.
         self._killer = threading.Timer(self.max_connection_seconds,
-                                       self._force_close)
+                                       self._force_close)  # armed only with a slot
         self._killer.daemon = True
         self._killer.start()
 
@@ -357,6 +374,12 @@ class H(BaseHTTPRequestHandler):
             pass
 
     def finish(self):
+        if getattr(self, "_got_slot", False):
+            self._got_slot = False
+            try:
+                H._slots.release()
+            except ValueError:
+                pass
         try:
             self._killer.cancel()
         except Exception:

@@ -132,8 +132,21 @@ print(f"blocks={head} txs={txs} uncles={uncles_seen} burned={burned} wei")
 # happened to touch. Those differ the moment a contract pays an address
 # that never appears in a transaction: that balance exists on chain but is
 # invisible to basic-RPC accounting, so summing modeled balances would
-# silently undercount. This figure stays exact on any chain.
-print(f"supply={issued - burned} wei issued={issued} wei")
+# undercount.
+#
+# It is an UPPER BOUND, not an exact figure, once any contract is involved.
+# Everett activates London with no Cancun, so pre-EIP-6780 SELFDESTRUCT
+# semantics apply: a contract that selfdestructs to itself destroys its
+# balance, and that burn is as invisible to basic RPC as an internal
+# payout. Two transactions on the live chain are enough to make it happen,
+# so the honest thing is to say so rather than print a number labelled
+# exact. With no contract-touched accounts, the bound is tight.
+if inexact:
+    print(f"supply<={issued - burned} wei issued={issued} wei "
+          f"(upper bound: {len(inexact)} contract-touched accounts; wei destroyed "
+          "by SELFDESTRUCT or moved internally is not visible to this model)")
+else:
+    print(f"supply={issued - burned} wei issued={issued} wei")
 if not ok:
     sys.exit("FAIL: account model diverges from chain state")
 if txs and burned <= 0:
