@@ -160,20 +160,54 @@ type client struct {
 	extranonce string
 	authorized bool
 	worker     string
-	// inFlight bounds this client to ONE forward at a time. The sidecar is
-	// consensus-free by design, so it cannot cheaply tell a real share from
-	// shape-valid garbage: only the node can, and each check costs it a full
-	// KawPow light verification. core-geth's remote sealer handles submits,
-	// new work, and getWork on ONE goroutine, so an unauthenticated LAN
-	// client spamming well-formed junk could occupy all four forward slots
-	// and starve both the honest miner's winning share and new-work
-	// generation, stalling block production without doing any PoW itself.
-	// One slot per client caps that at 1/4 of the pipe. It costs an honest
-	// miner nothing: the done flag already means one solution per job.
-	inFlight atomic.Bool
+	// Per-client submit budget. The sidecar is consensus-free by design, so
+	// it cannot cheaply tell a real share from shape-valid garbage: only the
+	// node can, and each check costs a full KawPow light verification.
+	// core-geth's remote sealer handles submits, new work, and getWork on ONE
+	// goroutine, so an unauthenticated LAN client spamming junk could occupy
+	// every forward slot and starve both the honest miner's winning share and
+	// new-work generation, without doing any proof of work itself.
+	//
+	// A token bucket, NOT a one-in-flight latch. The latch was tried first
+	// and was wrong: an honest 25 MH/s rig at the 8M share target submits
+	// roughly 3 shares a second, and a node call takes a few milliseconds, so
+	// the rig's own submits sometimes overlap. The latch dropped the second
+	// one, and a dropped submit can be the block-winning one. This bucket is
+	// far above any honest rate and far below a spammer's, so it separates
+	// them by rate rather than by luck. Guarded by bucketMu.
+	bucketMu   sync.Mutex
+	tokens     float64
+	lastRefill time.Time
 }
 
 func strip0x(s string) string { return strings.TrimPrefix(s, "0x") }
+
+const (
+	// submitRate is the sustained per-client submit budget, and submitBurst
+	// the depth. An honest rig runs near 3/s; a spammer runs thousands.
+	submitRate  = 30.0
+	submitBurst = 60.0
+)
+
+// takeToken reports whether this client may spend a node verification now.
+func (c *client) takeToken() bool {
+	c.bucketMu.Lock()
+	defer c.bucketMu.Unlock()
+	now := time.Now()
+	if c.lastRefill.IsZero() {
+		c.tokens, c.lastRefill = submitBurst, now
+	}
+	c.tokens += now.Sub(c.lastRefill).Seconds() * submitRate
+	if c.tokens > submitBurst {
+		c.tokens = submitBurst
+	}
+	c.lastRefill = now
+	if c.tokens < 1 {
+		return false
+	}
+	c.tokens--
+	return true
+}
 
 // isHex reports whether s is non-empty and all lowercase-or-digit hex.
 func isHex(s string) bool {
@@ -490,20 +524,20 @@ func (c *client) submit(params []interface{}) bool {
 	// node does on submitWork. An earlier comment claimed otherwise and was
 	// wrong. What is bounded instead is cost: one forward per client at a
 	// time, and four overall.
-	if !c.inFlight.CompareAndSwap(false, true) {
-		// This client already has a submit being verified by the node.
-		// Ack it (the miner should not stall on our accounting) but do not
-		// spend a second node verification on it.
+	if !c.takeToken() {
+		// This client is submitting far faster than any real miner can find
+		// shares. Ack it (a miner must never stall on our accounting) but
+		// do not spend a node verification on it.
 		nSkipped := forwardsSkipped.Add(1)
-		if nSkipped == 1 || nSkipped%100 == 0 {
-			log.Printf("submits skipped, client already has one in flight: %d so far", nSkipped)
+		if nSkipped == 1 || nSkipped%500 == 0 {
+			log.Printf("submits rate-limited from %s: %d so far", c.conn.RemoteAddr(), nSkipped)
 		}
 		return true
 	}
 	select {
 	case forwardSlots <- struct{}{}:
 		go func() {
-			defer func() { <-forwardSlots; c.inFlight.Store(false) }()
+			defer func() { <-forwardSlots }()
 			var accepted bool
 			err := nodeCall("eth_submitWork",
 				[]string{"0x" + n, "0x" + strip0x(header), "0x" + strip0x(mix)}, &accepted)
@@ -526,7 +560,6 @@ func (c *client) submit(params []interface{}) bool {
 	default:
 		// All forward slots busy (node stalled). Dropping the forward loses
 		// nothing a later share will not redo.
-		c.inFlight.Store(false)
 		nDropped := forwardsDropped.Add(1)
 		if nDropped == 1 || nDropped%50 == 0 {
 			log.Printf("forwards dropped while node busy: %d so far", nDropped)
