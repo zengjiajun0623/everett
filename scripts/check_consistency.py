@@ -182,25 +182,55 @@ print("core-geth pin consistent across Dockerfile + scripts:", _m1.group(1)[:12]
 # duplication is allowed but GATED: both recipes must copy the same client
 # files and apply the same hooks to the same targets.
 def _prep_facts(text):
-    files = set(_re.findall(r'client/(\w+\.go)', text))
+    """Extract what a prep recipe actually DOES, not just which names it mentions.
+
+    An earlier version compared only the SET of client/*.go filenames and the
+    BASENAMES of hook targets, so it printed "recipes agree" while the two
+    produced different trees: copying kawpow_engine.go into params/mutations/
+    instead of consensus/ethash/, or applying the DAA hook to a different
+    path, left it green. It now compares (source, DESTINATION) pairs and full
+    hook target paths, which is what determines the resulting tree.
+    """
+    copies = set()
+    # `cp a.go b.go dest/` and `COPY a.go b.go dest/` both end in the dest.
+    for line in text.splitlines():
+        t = line.strip().lstrip('#').strip()
+        if not (t.startswith('cp ') or t.upper().startswith('COPY ')):
+            continue
+        parts = [w.strip('"\'') for w in t.split() if 'client/' in w or w.endswith('/')]
+        srcs = [w.split('client/')[-1] for w in parts if 'client/' in w]
+        dests = [w for w in parts if w.endswith('/')]
+        if srcs and dests:
+            for src in srcs:
+                copies.add((src, dests[-1].rstrip('/')))
     hooks = set()
-    for m in _re.finditer(r'(apply_\w+\.py)"?((?:\s+[\w/]+\.go)+)', text):
-        targets = tuple(sorted(t.split('/')[-1] for t in m.group(2).split()))
+    for m in _re.finditer(r'(apply_\w+\.py)"?((?:\s+[\w/.-]+\.go)+)', text):
+        targets = tuple(sorted(t.lstrip('./') for t in m.group(2).split()))
         hooks.add((m.group(1), targets))
-    return files, hooks
+    # The modern-Go compat block matters too: dropping the blst bump in one
+    # recipe and not the other yields trees that build differently.
+    compat = (bool(_re.search(r'blst v0\.3\.1\[1-6\]|blst@v0\.3\.17', text)),
+              bool(_re.search(r'memsize', text)))
+    return copies, hooks, compat
 
 
-_ci_files, _ci_hooks = _prep_facts(_ci)
-_df_files, _df_hooks = _prep_facts(_df)
-if _ci_files != _df_files:
+_ci_copies, _ci_hooks, _ci_compat = _prep_facts(_ci)
+_df_copies, _df_hooks, _df_compat = _prep_facts(_df)
+if _ci_copies != _df_copies:
     raise AssertionError(
-        "prep drift: docker/node.Dockerfile copies a different set of client files than "
-        f"ci_prepare.sh (missing {sorted(_ci_files - _df_files)}, extra {sorted(_df_files - _ci_files)}). "
-        "A file copied by one recipe and not the other is how a gate ends up running zero tests.")
+        "prep drift: docker/node.Dockerfile copies client files to different places than "
+        f"ci_prepare.sh.\n  only in ci_prepare: {sorted(_ci_copies - _df_copies)}"
+        f"\n  only in Dockerfile: {sorted(_df_copies - _ci_copies)}\n"
+        "A file copied to the wrong package, or not copied at all, is how a gate "
+        "ends up running zero tests.")
 if _ci_hooks != _df_hooks:
     raise AssertionError(
-        "prep drift: docker/node.Dockerfile applies different hooks or targets than ci_prepare.sh:"
-        f"\n  ci_prepare: {sorted(_ci_hooks)}\n  Dockerfile: {sorted(_df_hooks)}")
-print(f"prep recipes agree: {len(_ci_files)} client files, {len(_ci_hooks)} hook invocations")
+        "prep drift: docker/node.Dockerfile applies different hooks or targets than "
+        f"ci_prepare.sh:\n  ci_prepare: {sorted(_ci_hooks)}\n  Dockerfile: {sorted(_df_hooks)}")
+if _ci_compat != _df_compat:
+    raise AssertionError(
+        f"prep drift: the modern-Go compat block differs (blst, memsize) = "
+        f"{_ci_compat} in ci_prepare.sh vs {_df_compat} in docker/node.Dockerfile")
+print(f"prep recipes agree: {len(_ci_copies)} file copies with destinations, {len(_ci_hooks)} hook invocations, compat block {_ci_compat}")
 
 print(f"consistency gate PASSED ({len(checks)} document checks, {len(sweep)} reward vectors)")
