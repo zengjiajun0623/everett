@@ -65,27 +65,68 @@ def py_reward(n):
     return r
 
 
-# Independent transcription of the Go implementation's control flow, kept
-# separate so a copy-paste error in either is visible here.
-def go_reward(n):
-    if n == 0:
-        return 0
-    era = n // ERA
+# A STRUCTURALLY DIFFERENT model of the same article, so the comparison
+# below is a real cross-check. The previous "independent transcription"
+# was the first function with its operands reordered: any shared
+# misreading of the constitution lived in both, and the sweep could not
+# disagree with itself.
+#
+# This model derives the per-block reward from CUMULATIVE issuance:
+# build total issuance up to a height, then difference two heights. It
+# reaches the same numbers by a different route, and an off-by-one at an
+# era or slow-start boundary shows up here as a mismatch even though the
+# era-by-era loop above would happily agree with a copy of itself.
+#
+# Note on flooring: the schedule floors once PER ERA (the chain multiplies
+# and truncates each era), so a closed-form D0*993^k/1000^k with a single
+# final floor is a DIFFERENT schedule and diverges by era 10. The per-era
+# convention is the law; this model applies it explicitly.
+_cum_cache = {}
+
+
+def _era_decay(k):
+    """Decay component in era k, floored once per era, as the chain does."""
     d = D0
-    for _ in range(era):
-        d = (d * 993) // 1000
-    r = d + TAIL
-    if n < SLOW:
-        r = (r * n) // SLOW
-    return r
+    for _ in range(k):
+        d = d * 993 // 1000
+    return d
+
+
+def _cum(n):
+    """Total issued through block n, summed independently of py_reward."""
+    if n <= 0:
+        return 0
+    if n in _cum_cache:
+        return _cum_cache[n]
+    total = 0
+    # Slow start: each block pays a proportion of its era-0 reward, and the
+    # proportion is floored per block, so this range must be summed, not
+    # multiplied out.
+    base0 = _era_decay(0) + TAIL
+    for i in range(1, min(n, SLOW - 1) + 1):
+        total += base0 * i // SLOW
+    # After the slow start, blocks in the same era pay identically, so each
+    # era contributes (count in era) * (decay + tail).
+    i = SLOW
+    while i <= n:
+        k = i // ERA
+        era_end = min(n, (k + 1) * ERA - 1)
+        total += (era_end - i + 1) * (_era_decay(k) + TAIL)
+        i = era_end + 1
+    _cum_cache[n] = total
+    return total
+
+
+def spec_reward(n):
+    return _cum(n) - _cum(n - 1)
 
 
 sweep = [0, 1, 2, 46_500, 92_999, 93_000, 93_001, 99_999, 100_000, 100_001,
          199_999, 200_000, 1_000_000, 9_870_000, 500_000_000]
 for n in sweep:
-    a, b = py_reward(n), go_reward(n)
+    a, b = py_reward(n), spec_reward(n)
     if a != b:
-        fail.append(f"reward mismatch at block {n}: {a} != {b}")
+        fail.append(f"reward mismatch at block {n}: era-loop={a} spec-model={b}")
     if a < 0:
         fail.append(f"negative reward at block {n}")
     # Tail floor: the schedule's reward never drops below the 0.2 tail

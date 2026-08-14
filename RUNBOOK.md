@@ -47,8 +47,8 @@ five-job list under CI gates below.
 ## How to run
 
 ```bash
-scripts/boot_devnet.sh        # clone, patch, test, build, init, mine
-scripts/verify_devnet.sh      # in a second shell, against localhost:8545
+scripts/boot_devnet.sh        # clone, patch, test, build, init, mine (RPC :8547)
+RPC=http://127.0.0.1:8547 scripts/verify_devnet.sh   # in a second shell
 ```
 
 Expect several minutes of DAG generation on first mine (ethash epoch 0).

@@ -36,10 +36,13 @@ python3 "$EVERETT/scripts/apply_kawpow_hooks.py" --verify \
   "$PROD/consensus/ethash/consensus.go" "$PROD/consensus/ethash/sealer.go" \
   "$PROD/eth/backend.go" "$PROD/cmd/utils/flags.go" \
   || { echo "FAIL: KawPow hooks missing or outdated in $PROD"; exit 1; }
-grep -q "everettRewards" "$PROD/params/mutations/rewards.go" \
-  || { echo "FAIL: Article III reward hook missing from $PROD/params/mutations/rewards.go"; exit 1; }
-grep -q "everettCalcDifficulty\|EverettASERT\|asert" "$PROD/consensus/ethash/consensus.go" \
-  || { echo "FAIL: ASERT difficulty hook missing from $PROD/consensus/ethash/consensus.go"; exit 1; }
+# Content checks, not greps for an identifier: a marker can be present
+# while the hook BODY is an older version, which is exactly how a stale
+# hook survived undetected in the production tree.
+python3 "$EVERETT/scripts/apply_hook.py" --verify "$PROD/params/mutations/rewards.go" \
+  || { echo "FAIL: Article III reward hook missing or outdated in $PROD"; exit 1; }
+python3 "$EVERETT/scripts/apply_daa_hook.py" --verify "$PROD/consensus/ethash/consensus.go" \
+  || { echo "FAIL: ASERT difficulty hook missing or outdated in $PROD"; exit 1; }
 [ "$GETH" -nt "$PROD/consensus/ethash/kawpow_core.go" ] \
   || { echo "FAIL: $GETH is older than its sources; the build did not produce it"; exit 1; }
 BUILT_SHA=$(shasum -a 256 "$GETH" | cut -d' ' -f1)

@@ -84,8 +84,12 @@ more cores).
 In a second terminal, audit your own chain against the constitution:
 
 ```bash
-scripts/verify_devnet.sh
+RPC=http://127.0.0.1:8547 scripts/verify_devnet.sh
 ```
+
+(`boot_devnet.sh` serves its RPC on 8547, not the default 8545, so a devnet
+started on a machine that already runs an Everett node cannot collide with
+it. It prints this exact command when it starts mining.)
 
 That script asserts you are auditing the chain you meant to (`EXPECT_CHAINID`,
 default the dev chain 15537391), checks the genesis is London-active and

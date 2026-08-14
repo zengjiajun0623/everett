@@ -83,10 +83,17 @@ PYEOF
   echo "existing chain found in $DATADIR (RESET=1 to wipe)"
 fi
 
-echo "== mining (Ctrl-C to stop; run verify_devnet.sh in another shell) =="
+echo "== mining (Ctrl-C to stop) =="
+echo "   verify in another shell:  RPC=http://127.0.0.1:${HTTP_PORT:-8547} EXPECT_CHAINID=$NETWORKID scripts/verify_devnet.sh"
 # Rewards go to ETHERBASE; set it to your own address to keep what you mine.
 ETHERBASE="${ETHERBASE:-0x1000000000000000000000000000000000000001}"
+# Dedicated ports, env-overridable. The defaults (30303/8545/8551) are the
+# production node's on an operator host, so the README's canonical devnet
+# command used to die on "address already in use", or, with production
+# briefly stopped, squat the ports and hold the live node in a launchd
+# crash loop. Every other booting script here is hermetic for this reason.
 exec "$GETH" --datadir "$DATADIR" --networkid "$NETWORKID" --nodiscover \
+  --port "${PORT:-30306}" --authrpc.port "${AUTHRPC_PORT:-8554}" \
   --mine --miner.threads "${THREADS:-1}" \
   --miner.etherbase "$ETHERBASE" \
-  --http --http.api eth,net,web3
+  --http --http.port "${HTTP_PORT:-8547}" --http.api eth,net,web3
