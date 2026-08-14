@@ -841,6 +841,93 @@ non-mining verifier never does, so its advertised head sits frozen at
 session start. pc3080 was at the network head the whole time, confirmed by
 querying it directly (7,499, identical hash and total difficulty).
 
+## 2026-08-14: cross-model rounds close, the tree is simplified, and the
+## sidecar learns to say no
+
+Eight commits after round 4, in the order they landed.
+
+1. **80f8ef1, Kimi round 3.** Three findings, and two of them were bugs
+   round 4 had already fixed independently (the container guard's hex
+   parsing, and the authorized miner's read deadline). Two reviewers
+   arriving separately at the same two defects, both already closed, is the
+   first genuine convergence signal of the campaign: 44 findings, then 30,
+   25, 7, and now one. The one new item was real: burn_audit marked an
+   account inexact only when the transaction carried VALUE, but any call
+   into contract code can move value invisibly to basic RPC (a zero-value
+   withdraw pays the SENDER), so the audit would have failed forever on a
+   healthy chain. A permanently red proof is worse than an honestly scoped
+   one, because it hides the next real divergence behind alarm fatigue.
+2. **943cb74, a join recipe that works.** The Wheeler section named the
+   bootnode and warned that a stock client cannot follow the chain, then
+   sent the reader to sections that boot a local DEVNET. There was no
+   command to actually join. That is the likely reason three separate
+   hosts connected to the bootnode overnight with stock builds and
+   silently bounced. The README now carries the sequence, verified by
+   running it: a fresh datadir synced 7,499 blocks from the bootnode.
+   It also names the failure signature, which is what would have saved the
+   three who bounced: height stuck at 0x0 while peer count is non-zero
+   means an unpatched client.
+3. **b2be646, the liveness alarm** (see the incident entry above).
+4. **e6e7b38, the dashboard is light by default.** The categorical trio was
+   revalidated against the light surface rather than inherited: the old
+   teal reached only 2.94:1 on white. Two bugs were invisible until the
+   switch: the tooltip hardcoded a near-black background (dark on dark),
+   and the y-axis labels were clipped because the gutter was narrower than
+   the widest label.
+5. **19a64d1, simplification: 2,371 lines deleted.** The vendored
+   go-quai reference (2,233 lines) was unreachable by every build, test and
+   CI path, could not compile here, and forced an LGPL exception into
+   LICENSE. Two superseded G6 planning docs and a third copy of the
+   bootnode enode went with it, and join_wheeler_wsl.sh now delegates to
+   ci_prepare.sh rather than re-implementing its twelve steps.
+   docker/node.Dockerfile deliberately KEEPS its copy, because delegating
+   forces `COPY . /src` before the core-geth fetch and a README typo would
+   then bust the clone layer and re-run the 40-minute KawPow gate. The
+   duplication is instead GATED: check_consistency.py now fails if the two
+   recipes copy different client files or apply different hooks, and it is
+   negative-controlled against the real historical bug (removing
+   asert_enum_test.go from the Dockerfile's list, the omission that once
+   let a consensus gate pass while running zero tests). Two deletion
+   candidates were rejected on inspection: verify_rewards.py is read by the
+   consistency job for Article III constants, and G6_P1_NOTES.md and
+   DAA_MEMO.md are cited by shipped code as normative specs.
+6. **1cf37d4, DeepSeek round 5** (its first completed run after two silent
+   deaths; the cause was prompt bloat, and a lean prompt fixed it). The
+   sidecar validated a submit's SHAPE but never checked it against the
+   target, while a comment claimed it did. That comment was false: checking
+   it IS the node's KawPow work. So any LAN client could read the broadcast
+   job header, spam well-formed garbage, occupy every forward slot, and
+   make the node burn a full light verification on each, while doing no
+   proof of work itself. core-geth's remote sealer handles submits, new
+   work and getWork on ONE goroutine, so the honest miner's winning share
+   queues behind the junk. Also: the dashboard's Supply tile summed the
+   audit's per-account balances, which equals supply only while every
+   holder appears in a transaction; burn_audit now reports
+   supply = issued - burned.
+7. **f276dfe, the first fix for that was wrong, and production said so.**
+   A one-in-flight latch shipped, and within a minute the honest GPU had
+   been skipped once: a 25 MH/s rig at the 8M share target submits about
+   three shares a second and a node call takes milliseconds, so the rig's
+   own submits overlap, and the latch dropped the second one. A dropped
+   submit can be the block-winning one. Replaced with a per-client token
+   bucket (30/s sustained, 60 burst) that separates honest from hostile by
+   RATE rather than by luck. Caught by watching the log after deploying,
+   not by reasoning.
+8. **7f21d26, and the token bucket was multipliable.** Reviewed with fresh
+   eyes (a different model reading the same repo), the per-client budget
+   turned out to be bypassable by opening more clients: ten connections
+   from one address cut the honest miner's delivery from three submits to
+   one. maxPerIP = 4 removes the multiplier. The loopback exemption made
+   the cap untestable by construction, since every test connection is
+   loopback, so it is a package var the test switches off.
+
+The standing lesson from the whole campaign, stated once: **a guard is
+worth exactly what its failure mode is worth, and the newest guard is
+always the least reviewed code in the tree.** Three consecutive rounds
+found their bug in the previous round's fix. Two of those were caught only
+because a different model read the code, and one because a log was watched
+after a deploy rather than a test being trusted.
+
 ## 2026-08-14: audit round 4, 6 code findings, five in the night's own guards
 
 6e96e89, run against ed5a046 on the theory that the newest code is the least

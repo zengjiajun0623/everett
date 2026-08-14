@@ -36,7 +36,7 @@ Every constitutional article is enforced by executable gates (CI on
 every push) and, for the monetary schedule and difficulty filter, by
 machine-checked proofs (fv/) and exhaustive enumeration. The full audit
 trail, including failures, lives in RUNBOOK.md, whose status log runs
-through audit round 4 (6e96e89, the tip when this was written). If the
+through 7f21d26 (the tip when this was written). If the
 log's last entry is older than the commits you are reading, treat the
 difference as unreviewed rather than as nothing having happened: the log
 falling behind the tree is a defect this project has now recorded twice,
