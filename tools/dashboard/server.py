@@ -29,11 +29,14 @@ PORT = int(os.environ.get("PORT", "8484"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIT = os.path.join(HERE, "..", "..", "scripts", "burn_audit.py")
 AUDIT_CMD = ["python3", AUDIT]   # exact spawn cmdline; also the stale-kill match
-# The audit refuses to run against a chain other than this one. It must
-# track RPC: hardcoding Wheeler made a dashboard pointed at any other node
-# (the docstring advertises RPC as a knob) show a permanent red audit FAIL
-# with an assertion in the tile.
-EXPECT_CHAINID = os.environ.get("EXPECT_CHAINID", "15537392")
+# The audit refuses to run against a chain other than this one, so the
+# expectation must track RPC. Hardcoding Wheeler made a dashboard pointed
+# anywhere else (a devnet, and mainnet on launch day) show a permanent red
+# audit FAIL. Resolved at startup from the node itself unless the operator
+# pins it explicitly, which keeps the guard meaningful (it still catches
+# the node changing identity underneath a running dashboard) without
+# breaking every other chain.
+EXPECT_CHAINID = os.environ.get("EXPECT_CHAINID")
 WINDOW = 300          # blocks kept for charts
 AUDIT_EVERY = 300     # seconds between exact supply audits
 
@@ -228,7 +231,8 @@ def run_audit():
             # crash never leaves N concurrent full-chain replays behind;
             # kill_stale_audits() at startup mops up anything that did.
             proc = subprocess.Popen(
-                AUDIT_CMD, env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": EXPECT_CHAINID},
+                AUDIT_CMD, env={**os.environ, "RPC": RPC,
+                     **({"EXPECT_CHAINID": EXPECT_CHAINID} if EXPECT_CHAINID else {})},
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 start_new_session=True)
             with _audit_lock:
@@ -345,6 +349,13 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if EXPECT_CHAINID is None:
+        try:
+            EXPECT_CHAINID = str(hx(rpc("eth_chainId")))
+            print(f"audit chain expectation resolved from the node: {EXPECT_CHAINID}", flush=True)
+        except Exception as e:
+            print(f"could not read eth_chainId from {RPC} ({e}); "
+                  "audits will run without a chain guard until restarted", flush=True)
     kill_stale_audits()
     atexit.register(_kill_audit_group)
     signal.signal(signal.SIGTERM, _on_sigterm)
@@ -354,5 +365,7 @@ if __name__ == "__main__":
     httpd = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     threading.Thread(target=follow_head, daemon=True).start()
     threading.Thread(target=run_audit, daemon=True).start()
-    print(f"everett dashboard on http://0.0.0.0:{PORT} (node {RPC})")
+    # flush: launchd block-buffers stdout to its log file, so without
+    # this the startup lines sit invisible until the process exits.
+    print(f"everett dashboard on http://0.0.0.0:{PORT} (node {RPC})", flush=True)
     httpd.serve_forever()

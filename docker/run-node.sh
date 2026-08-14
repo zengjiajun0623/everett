@@ -97,7 +97,16 @@ fi
 if [ "${MINE:-0}" = "1" ]; then
   # MINER_THREADS=0 = serve eth_getWork only; the GPU miner mines. ETHERBASE
   # is a hard requirement: no constitutional revenue to an unset address.
-  ARGS+=(--mine --miner.threads "$MINER_THREADS"
+  # core-geth reads --miner.threads 0 as "use every core" and only a
+  # NEGATIVE value disables local mining (consensus/ethash/sealer.go:
+  # `if threads == 0 { threads = runtime.NumCPU() }`). MINER_THREADS=0 is
+  # documented here and defaulted in compose to mean "serve work to the
+  # GPU miner and do no hashing", so translate it to -1. Without this the
+  # default stack quietly CPU-mines KawPow on all cores and builds a
+  # ~1 GiB DAG in RAM.
+  THREADS_FLAG="$MINER_THREADS"
+  [ "$MINER_THREADS" = "0" ] && THREADS_FLAG=-1
+  ARGS+=(--mine --miner.threads "$THREADS_FLAG"
          --miner.etherbase "${ETHERBASE:?run-node: set ETHERBASE=0xYourAddress to mine}")
 fi
 

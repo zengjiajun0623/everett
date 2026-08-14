@@ -31,6 +31,8 @@ services:
       MINE: "1"
       # Throwaway devnet address; replace with your own EOA to keep coins.
       ETHERBASE: "0x1000000000000000000000000000000000000001"
+      # 0 = serve work only (the entrypoint passes -1 to geth, which is
+      # what actually disables local mining; plain 0 means all cores).
       MINER_THREADS: "0"
       # KawPow on the dev chain (Wheeler/mainnet are KawPow regardless).
       # Unset this only to run a legacy ethash devnet with the miner

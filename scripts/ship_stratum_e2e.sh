@@ -57,7 +57,7 @@ rm -rf "$DATA"
   || { say "FAIL: genesis init"; exit 1; }
 EVERETT_KAWPOW=1 "$GETH" --datadir "$DATA" --networkid "$DEV_CHAINID" --nodiscover --maxpeers 0 \
   --port 30305 --authrpc.port 8553 \
-  --mine --miner.threads 0 --miner.etherbase "$PAYOUT" \
+  --mine --miner.threads -1 --miner.etherbase "$PAYOUT" \
   --http --http.port 8555 --http.api eth,net,web3 > "$NODE_LOG" 2>&1 &
 E2E_NODE=$!
 # Install cleanup NOW, not after the sidecar starts: every failure between
