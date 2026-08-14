@@ -24,7 +24,20 @@ EVERETT="$(cd "$(dirname "$0")/.." && pwd)"
 RPC="${RPC:-http://127.0.0.1:8545}"
 STALL_SECONDS="${STALL_SECONDS:-300}"
 SENTINEL="$EVERETT/build/chain-stalled"
+RESTARTS="$EVERETT/build/miner-restarts"   # timestamps of auto-restarts
 LOG="$EVERETT/build/liveness.log"
+# Auto-remediation is deliberately BOUNDED. The one failure this has seen
+# (2026-08-14) was the GPU miner wedging: hashing at 100% while submitting
+# nothing, cleared instantly by restarting its scheduled task. Restarting
+# it automatically turns a 27-minute outage into a 2-minute one.
+#
+# But a self-healing loop that silently papers over a recurring fault is
+# worse than the outage, because the frequency never reaches a human. So:
+# at most one restart per stall episode, and at most MAX_RESTARTS within
+# RESTART_WINDOW before it stops trying and escalates instead.
+AUTO_RESTART="${AUTO_RESTART:-1}"
+MAX_RESTARTS="${MAX_RESTARTS:-3}"
+RESTART_WINDOW="${RESTART_WINDOW:-21600}"   # 6 hours
 PHONE="${EVERETT_ALERT_PHONE:-+16692137336}"
 
 mkdir -p "$EVERETT/build"
@@ -60,16 +73,55 @@ print(int(b['number'], 16), int(time.time()) - int(b['timestamp'], 16))
 ")
 EOF
 
+restart_miner() {
+  # Count restarts inside the window; drop older ones.
+  local now cutoff recent=0
+  now=$(date +%s); cutoff=$((now - RESTART_WINDOW))
+  if [ -f "$RESTARTS" ]; then
+    awk -v c="$cutoff" '$1 > c' "$RESTARTS" > "$RESTARTS.tmp" && mv "$RESTARTS.tmp" "$RESTARTS"
+    recent=$(wc -l < "$RESTARTS" | tr -d ' ')
+  fi
+  if [ "$recent" -ge "$MAX_RESTARTS" ]; then
+    log "NOT auto-restarting: $recent restarts already in the last $((RESTART_WINDOW / 3600))h"
+    notify "Everett ALARM: Wheeler stalled again and the miner has already been auto-restarted $recent times in $((RESTART_WINDOW / 3600))h. Not restarting again: something is recurring and wants a human. Check nvidia-smi and kawpowminer/wheeler.err on pc3080."
+    return 1
+  fi
+  log "auto-restarting the GPU miner (restart $((recent + 1)) of $MAX_RESTARTS in window)"
+  if ssh -o ConnectTimeout=10 -o BatchMode=yes pc3080 "schtasks /end /tn WheelerGPU" >/dev/null 2>&1 &&
+     ssh -o ConnectTimeout=10 -o BatchMode=yes pc3080 "schtasks /run /tn WheelerGPU" >/dev/null 2>&1; then
+    echo "$now" >> "$RESTARTS"
+    notify "Everett: Wheeler stalled ($((AGE / 60)) min, head $HEIGHT); auto-restarted the GPU miner. Will alarm if blocks do not resume."
+    return 0
+  fi
+  log "auto-restart FAILED (ssh to pc3080 unreachable?)"
+  notify "Everett ALARM: Wheeler stalled ($((AGE / 60)) min, head $HEIGHT) and the automatic miner restart FAILED. pc3080 may be unreachable."
+  return 1
+}
+
 if [ "$AGE" -gt "$STALL_SECONDS" ]; then
   if [ ! -f "$SENTINEL" ]; then
     echo "stalled $(date +%s) height=$HEIGHT" > "$SENTINEL"
     log "ALARM: no new block for ${AGE}s (head $HEIGHT)"
-    notify "Everett ALARM: Wheeler has not produced a block in $((AGE / 60)) min (head $HEIGHT). Usual cause: the GPU miner wedged. Fix: ssh pc3080 'schtasks /end /tn WheelerGPU' then '/run /tn WheelerGPU'."
+    if [ "$AUTO_RESTART" = "1" ]; then
+      restart_miner || true
+    else
+      notify "Everett ALARM: Wheeler has not produced a block in $((AGE / 60)) min (head $HEIGHT). Usual cause: the GPU miner wedged. Fix: ssh pc3080 'schtasks /end /tn WheelerGPU' then '/run /tn WheelerGPU'."
+    fi
   else
-    log "still stalled: ${AGE}s at height $HEIGHT"
+    # Already alarmed and (probably) restarted once for this episode. If it
+    # is STILL stalled well past the restart, the restart did not work and a
+    # human is needed.
+    STARTED=$(awk '{print $2}' "$SENTINEL" 2>/dev/null)
+    if [ -n "$STARTED" ] && [ $(( $(date +%s) - STARTED )) -gt $((STALL_SECONDS * 2)) ] && [ ! -f "$SENTINEL.escalated" ]; then
+      touch "$SENTINEL.escalated"
+      log "ESCALATION: still stalled ${AGE}s after the automatic restart"
+      notify "Everett ALARM: Wheeler is STILL stalled $((AGE / 60)) min after an automatic miner restart. The restart did not fix it. Check pc3080 (nvidia-smi, kawpowminer/wheeler.err) and build/wheeler.log."
+    else
+      log "still stalled: ${AGE}s at height $HEIGHT"
+    fi
   fi
 elif [ -f "$SENTINEL" ]; then
-  rm -f "$SENTINEL"
+  rm -f "$SENTINEL" "$SENTINEL.escalated"
   log "RECOVERED: block $HEIGHT is ${AGE}s old"
   notify "Everett recovered: blocks are landing again (head $HEIGHT)."
 else
