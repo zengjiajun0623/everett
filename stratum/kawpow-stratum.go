@@ -396,16 +396,28 @@ func (c *client) submit(params []interface{}) bool {
 	mu.Lock()
 	w, ok := jobs[jobID]
 	if ok && w.done {
-		// The block for this job is already found (or the job is
-		// superseded). The share is still valid work — ack it instantly
-		// so the reply queue never backs up into the miner's response
-		// watchdog. No node call.
+		// A block for this job was already found. The share is still
+		// valid work, so ack it instantly and keep the reply queue clear
+		// of the miner's response watchdog. No node call.
 		mu.Unlock()
 		return true
 	}
 	mu.Unlock()
 	if !ok {
 		log.Printf("submit for unknown job %s", jobID)
+		return false
+	}
+	// The header must be the one this job handed out. A submit that pairs
+	// job A with job B's header would be forwarded as-is, and if the node
+	// accepted it (both are live inside its stale window) we would mark A
+	// done. Every later share for A, including a genuine block-winning
+	// nonce, would then take the done early-ack above and never reach the
+	// node: a block silently lost while the miner is told "accepted".
+	// Stock miners always pair them correctly, so this only fires on a
+	// buggy or hostile client, which is exactly when it matters.
+	if !strings.EqualFold(strip0x(header), w.header) {
+		log.Printf("submit for job %s carries header %s, job has %s: rejecting",
+			jobID, strip0x(header), w.header)
 		return false
 	}
 	n := strip0x(nonce)

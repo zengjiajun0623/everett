@@ -163,15 +163,19 @@ func TestProtocolConcurrent(t *testing.T) {
 				// worker-name race the old code had.
 				_ = enc.Encode(map[string]interface{}{"id": 2, "method": "mining.authorize",
 					"params": []interface{}{fmt.Sprintf("worker-%d-%d", id, i), "x"}})
+				// Submit the job's OWN header: submit() rejects a
+				// job/header mismatch, and a rejected share never reaches
+				// the forward goroutine, which is the code this test
+				// exists to exercise under -race.
 				mu.Lock()
-				jobID := ""
+				jobID, jobHeader := "", ""
 				if current != nil {
-					jobID = current.jobID
+					jobID, jobHeader = current.jobID, current.header
 				}
 				mu.Unlock()
 				_ = enc.Encode(map[string]interface{}{"id": 3, "method": "mining.submit",
 					"params": []interface{}{fmt.Sprintf("worker-%d", id), jobID,
-						fmt.Sprintf("0x%016x", id*1000+i), fmt.Sprintf("%064x", i), fmt.Sprintf("%064x", i)}})
+						fmt.Sprintf("0x%016x", id*1000+i), jobHeader, fmt.Sprintf("%064x", i)}})
 				time.Sleep(time.Millisecond)
 			}
 		}(m)

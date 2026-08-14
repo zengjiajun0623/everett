@@ -308,6 +308,19 @@ def status_payload():
 
 
 class H(BaseHTTPRequestHandler):
+    # BaseHTTPRequestHandler reads the request line from a BLOCKING socket
+    # with no timeout, and ThreadingHTTPServer gives every connection its
+    # own thread. A LAN client that opens sockets and sends nothing would
+    # otherwise pin a thread and a file descriptor each, forever, until the
+    # process hits its descriptor limit and the dashboard stops answering
+    # while still looking alive. A read timeout bounds that; a slow but
+    # real client simply reconnects.
+    timeout = 10
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(self.timeout)
+
     def log_message(self, *a):
         pass
 
