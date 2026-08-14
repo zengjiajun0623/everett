@@ -3,12 +3,12 @@
 # prove it matches the constitution. Independent of the Go code by design:
 # the schedule is recomputed in Python and compared against on-chain state.
 set -euo pipefail
-RPC="${RPC:-http://127.0.0.1:8545}"
+export RPC="${RPC:-http://127.0.0.1:8545}"
 # EXPECT_CHAINID guards against auditing the wrong chain (default: the
 # dev chain; pass EXPECT_CHAINID=15537392 for Wheeler). A DeepSeek audit
 # demonstrated the false green this prevents: with a live node on the
 # host, the script happily audited a different chain than intended.
-EXPECT_CHAINID="${EXPECT_CHAINID:-15537391}"
+export EXPECT_CHAINID="${EXPECT_CHAINID:-15537391}"
 call() { curl -s -X POST -H 'Content-Type: application/json' --data "$1" "$RPC"; }
 
 echo "== chainId (expect $EXPECT_CHAINID) =="
