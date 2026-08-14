@@ -35,6 +35,11 @@ checks = [
     ("scripts/verify_rewards.py", r"ERA, SLOW = 100_000, 93_000", "python era/slow"),
     ("scripts/verify_rewards.py", r"TAIL, D0 = 2 \* 10\*\*17, 18 \* 10\*\*17", "python tail/D0"),
     ("scripts/burn_audit.py", r"ERA, SLOW = 100_000, 93_000", "auditor era/slow"),
+    # The auditor's DECAY was unpinned: editing 993 here passed this gate
+    # untouched, and only a live chain would have contradicted it. Found by
+    # scripts/verify_gates.sh on its first run.
+    ("scripts/burn_audit.py", r"d \* 993 // 1000", "auditor decay 993/1000"),
+    ("scripts/burn_audit.py", r"TAIL, D0 = 2 \* 10\*\*17, 18 \* 10\*\*17", "auditor tail/D0"),
 ]
 for path, pattern, label in checks:
     if not re.search(pattern, read(path)):

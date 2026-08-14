@@ -80,6 +80,21 @@ jobs:
         # so a gate can never touch the tree a live operator node execs from.
         run: scripts/ci_devnet.sh
 
+  gate-controls:
+    name: "negative controls (do the gates actually fail?)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      # Breaks things on purpose and asserts each gate goes red. Without
+      # this, a gate can be weakened later and every downstream claim stays
+      # green: the failure this repo spent ten audit rounds finding.
+      - name: Break each guarded thing and require the gate to notice
+        run: bash scripts/verify_gates.sh
+
   formal-verification:
     name: "Article III machine-checked (Lean 4)"
     runs-on: ubuntu-latest
