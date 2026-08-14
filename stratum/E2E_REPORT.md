@@ -43,6 +43,37 @@
 Run: 2026-08-13T18:27:16Z, 12 minutes, RTX 3080 (pc3080)
 mining an Everett KawPow devnet through `kawpow-stratum`.
 
+## Re-verified 2026-08-14: a run where every number is real
+
+The correction notice above says the pc3080 columns were never measured.
+Rather than leave the file at "these numbers are wrong", the harness was
+re-run after its rewrite. Short window (2 minutes) and the GPU was shared
+with production Wheeler mining throughout, so the hashrate here is roughly
+half what the card does alone; the point is provenance, not a record.
+
+| Metric | Value | Where it comes from |
+|---|---|---|
+| Blocks mined | 139 in 2 min | the e2e node over IPC (`eth.blockNumber`) |
+| Accepted shares | 169 | pc3080 miner log, correctly escaped this time |
+| Effective hashrate | 11.3 MH/s | accepted x sharediff / elapsed, computed |
+| Difficulty | 131,072 to 247,003 | the e2e node over IPC |
+| Supply audit | exact, 139 blocks, 6 uncles | `burn_audit.py` against the e2e chain |
+
+What this run also proves about the harness itself, which is why it was
+worth doing:
+
+- It boots its OWN devnet on dedicated ports (30305/8555/8553) and proves
+  KawPow is active by reading the node's own log line, rather than
+  requiring a devnet that the script it named could not produce.
+- Production was untouched. Both miners ran side by side on pc3080 for the
+  whole window, the production one on :3333 and this run's on :3334, and
+  the PID-scoped cleanup reaped only its own. The pre-rewrite version
+  would have killed the production miner and raced launchd for the port.
+- It tears down completely: zero leftover processes afterwards.
+- It now FAILS on zero blocks or zero accepted shares, so a run that
+  measures nothing can no longer exit 0 with a table full of zeros.
+
+
 ## Result
 
 | Metric | getwork baseline (harness literal, not measured here) | stratum sidecar |
