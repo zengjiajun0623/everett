@@ -84,7 +84,7 @@ echo
 
 # --- constitution-consistency ------------------------------------------------
 run_control "decay constant 993 -> 990" "constitution-consistency" scripts/burn_audit.py \
-  "sed -i '' 's/d = d \* 993 \/\/ 1000/d = d * 990 \/\/ 1000/' scripts/burn_audit.py" \
+  "python3 -c \"p='scripts/burn_audit.py'; s=open(p).read(); open(p,'w').write(s.replace('d = d * 993 // 1000','d = d * 990 // 1000',1))\"" \
   "python3 scripts/check_consistency.py"
 
 run_control "wrong era decay in the cross-check model" "constitution-consistency" scripts/check_consistency.py \
@@ -98,15 +98,15 @@ PY" \
 
 # --- prep-recipe drift (inside the consistency job) --------------------------
 run_control "test file dropped from one prep recipe" "prep-drift gate" docker/node.Dockerfile \
-  "sed -i '' 's| client/asert_enum_test.go||' docker/node.Dockerfile" \
+  "python3 -c \"p='docker/node.Dockerfile'; s=open(p).read(); open(p,'w').write(s.replace(' client/asert_enum_test.go','',1))\"" \
   "python3 scripts/check_consistency.py"
 
 run_control "client file copied to the wrong package" "prep-drift gate" scripts/ci_prepare.sh \
-  "sed -i '' 's|cp \"\$EVERETT/client/kawpow_engine.go\" consensus/ethash/|cp \"\$EVERETT/client/kawpow_engine.go\" params/mutations/|' scripts/ci_prepare.sh" \
+  "python3 -c \"p='scripts/ci_prepare.sh'; s=open(p).read(); open(p,'w').write(s.replace('kawpow_engine.go\\\" consensus/ethash/','kawpow_engine.go\\\" params/mutations/',1))\"" \
   "python3 scripts/check_consistency.py"
 
 run_control "core-geth pin drifts between recipes" "pin-drift gate" docker/node.Dockerfile \
-  "sed -i '' 's/ARG COREGETH_COMMIT=10f1ea745cd89d72c398484a234cdc7fb29ecc32/ARG COREGETH_COMMIT=0000000000000000000000000000000000000000/' docker/node.Dockerfile" \
+  "python3 -c \"p='docker/node.Dockerfile'; s=open(p).read(); open(p,'w').write(s.replace('ARG COREGETH_COMMIT=10f1ea745cd89d72c398484a234cdc7fb29ecc32','ARG COREGETH_COMMIT=' + '0'*40,1))\"" \
   "python3 scripts/check_consistency.py"
 
 # --- formal-verification -----------------------------------------------------
@@ -145,7 +145,7 @@ if [ "$FULL" = "1" ]; then
   echo
   echo "  (--full) consensus vector control, this one builds and takes minutes"
   run_control "KawPow period 3 -> 4" "consensus unit gates" client/kawpow_core.go \
-    "sed -i '' 's/kawpowPeriod     = 3/kawpowPeriod     = 4/' client/kawpow_core.go" \
+    "python3 -c \"p='client/kawpow_core.go'; s=open(p).read(); open(p,'w').write(s.replace('kawpowPeriod     = 3','kawpowPeriod     = 4',1))\"" \
     "COREGETH_DIR=\$PWD/cg bash scripts/ci_prepare.sh >/dev/null 2>&1 && cd cg && go test ./consensus/ethash/ -run TestKawPowVectors -count=1"
 fi
 
