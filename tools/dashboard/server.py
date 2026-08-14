@@ -17,6 +17,7 @@ import atexit
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -312,18 +313,51 @@ def status_payload():
 
 
 class H(BaseHTTPRequestHandler):
-    # BaseHTTPRequestHandler reads the request line from a BLOCKING socket
-    # with no timeout, and ThreadingHTTPServer gives every connection its
-    # own thread. A LAN client that opens sockets and sends nothing would
-    # otherwise pin a thread and a file descriptor each, forever, until the
-    # process hits its descriptor limit and the dashboard stops answering
-    # while still looking alive. A read timeout bounds that; a slow but
-    # real client simply reconnects.
+    # BaseHTTPRequestHandler reads from a BLOCKING socket and
+    # ThreadingHTTPServer gives every connection its own thread, so without
+    # a bound a LAN client can pin a thread and a descriptor each until the
+    # process runs out and the dashboard stops answering while still
+    # looking alive.
+    #
+    # settimeout() alone is NOT that bound: it re-arms on every byte
+    # received, so a client dripping one byte every 9 seconds holds its
+    # thread indefinitely. The socket timeout bounds silence; the deadline
+    # below bounds the whole connection, which is what actually matters.
     timeout = 10
+    max_connection_seconds = 30
 
     def setup(self):
         super().setup()
         self.connection.settimeout(self.timeout)
+        # A hard stop on the whole connection. settimeout() only bounds
+        # SILENCE (it re-arms on every byte), so a client dripping a byte
+        # inside the request line stays under it forever. This timer closes
+        # the socket outright at the deadline, which unblocks the reading
+        # thread no matter what the client is doing.
+        self._killer = threading.Timer(self.max_connection_seconds,
+                                       self._force_close)
+        self._killer.daemon = True
+        self._killer.start()
+
+    def _force_close(self):
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self.connection.close()
+        except OSError:
+            pass
+
+    def finish(self):
+        try:
+            self._killer.cancel()
+        except Exception:
+            pass
+        try:
+            super().finish()
+        except OSError:
+            pass
 
     def log_message(self, *a):
         pass

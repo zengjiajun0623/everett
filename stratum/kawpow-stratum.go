@@ -164,6 +164,19 @@ type client struct {
 
 func strip0x(s string) string { return strings.TrimPrefix(s, "0x") }
 
+// isHex reports whether s is non-empty and all lowercase-or-digit hex.
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // toCompact encodes a 256-bit target in Bitcoin compact-bits form; the
 // miner parses the notify "bits" field with SetCompact.
 func toCompact(target *big.Int) string {
@@ -338,14 +351,19 @@ func handle(conn net.Conn) {
 		// real reason this side dropped the session.
 		log.Printf("miner %s disconnected: scan err=%v", conn.RemoteAddr(), sc.Err())
 	}()
+	connectedAt := time.Now()
 	for sc.Scan() {
-		// Refresh: an active miner keeps its session alive by talking.
-		// Authorized sessions get the generous window, handshaking ones
-		// stay on the short leash.
+		// An AUTHORIZED miner keeps its session alive by talking. An
+		// unauthorized one gets an ABSOLUTE budget from connect time: the
+		// deadline used to be re-armed on every received line, before
+		// parsing, so a socket dripping one junk byte a minute never
+		// expired and could hold a client slot forever. 128 of those
+		// filled the cap and every real miner got refused.
 		if c.authorized {
 			_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
-		} else {
-			_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+		} else if time.Since(connectedAt) > handshakeTimeout {
+			log.Printf("closing %s: no authorize within %s", conn.RemoteAddr(), handshakeTimeout)
+			return
 		}
 		var m stratumMsg
 		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
@@ -404,7 +422,7 @@ func (c *client) submit(params []interface{}) bool {
 	}
 	mu.Unlock()
 	if !ok {
-		log.Printf("submit for unknown job %s", jobID)
+		log.Printf("submit for unknown job %q", jobID)
 		return false
 	}
 	// The header must be the one this job handed out. A submit that pairs
@@ -416,14 +434,28 @@ func (c *client) submit(params []interface{}) bool {
 	// Stock miners always pair them correctly, so this only fires on a
 	// buggy or hostile client, which is exactly when it matters.
 	if !strings.EqualFold(strip0x(header), w.header) {
-		log.Printf("submit for job %s carries header %s, job has %s: rejecting",
+		log.Printf("submit for job %q carries header %q, job has %s: rejecting",
 			jobID, strip0x(header), w.header)
 		return false
 	}
-	n := strip0x(nonce)
-	if len(n) != 16 || !strings.HasPrefix(strings.ToLower(n), c.extranonce) {
-		log.Printf("submit nonce %q fails extranonce %s check", nonce, c.extranonce)
-		// Solo mode: accept anyway; the prefix is advisory when one miner owns the space.
+	// Shape checks REJECT. They used to log and fall through, so a
+	// malformed share was acked true and still forwarded: a buggy miner
+	// saw 100% "accepted" while producing nothing, and any LAN host could
+	// spend our node's CPU on garbage eth_submitWork verifications for
+	// free. The sidecar is consensus-free, but it can afford to check that
+	// a nonce is 16 hex digits before spending the node on it.
+	n := strings.ToLower(strip0x(nonce))
+	if len(n) != 16 || !isHex(n) {
+		log.Printf("submit for job %q: malformed nonce %q (want 16 hex): rejecting", jobID, nonce)
+		return false
+	}
+	if !isHex(strip0x(mix)) || len(strip0x(mix)) != 64 {
+		log.Printf("submit for job %q: malformed mix %q (want 64 hex): rejecting", jobID, mix)
+		return false
+	}
+	if !strings.HasPrefix(n, c.extranonce) {
+		// Advisory only: in solo mode one miner owns the nonce space.
+		log.Printf("submit nonce %q outside extranonce %s (advisory)", nonce, c.extranonce)
 	}
 	// Capture the worker name NOW, on this goroutine: submit() runs on the
 	// same read-loop goroutine that writes c.worker in the authorize case,
@@ -452,11 +484,11 @@ func (c *client) submit(params []interface{}) bool {
 				mu.Lock()
 				w.done = true
 				mu.Unlock()
-				log.Printf("BLOCK: job %s height=%d nonce=%s from %s", jobID, w.height, nonce, worker)
+				log.Printf("BLOCK: job %s height=%d nonce=%s from %q", jobID, w.height, nonce, worker)
 			} else {
 				nBelow := sharesBelow.Add(1)
 				if nBelow == 1 || nBelow%50 == 0 {
-					log.Printf("shares below block target: %d so far (expected under vardiff; sample: job %s nonce=%s)", nBelow, jobID, nonce)
+					log.Printf("shares below block target: %d so far (expected under vardiff; sample: job %q nonce=%q)", nBelow, jobID, nonce)
 				}
 			}
 		}()

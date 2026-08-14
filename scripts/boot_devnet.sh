@@ -74,7 +74,13 @@ finally:
     shutil.rmtree(d, ignore_errors=True)
 PYEOF
 )
-  if [ -n "$HAVE_GENESIS" ] && [ -n "$WANT_GENESIS" ] && [ "$HAVE_GENESIS" != "$WANT_GENESIS" ]; then
+  # Fail CLOSED. Either probe can come back empty (a leftover geth holding
+  # the probe port, a locked datadir), and requiring both to be non-empty
+  # before refusing meant the guard silently skipped exactly when something
+  # was already odd, which is the moment it is most needed.
+  [ -n "$HAVE_GENESIS" ] || { echo "boot_devnet: could not read $DATADIR's genesis; refusing to guess. Stop any node using it, or RESET=1." >&2; exit 1; }
+  [ -n "$WANT_GENESIS" ] || { echo "boot_devnet: could not compute $GENESIS_FILE's genesis hash; refusing to guess." >&2; exit 1; }
+  if [ "$HAVE_GENESIS" != "$WANT_GENESIS" ]; then
     echo "boot_devnet: $DATADIR holds genesis $HAVE_GENESIS but GENESIS=$GENESIS_FILE is $WANT_GENESIS." >&2
     echo "boot_devnet: reusing it with --networkid $NETWORKID would run the OLD chain on the NEW network id." >&2
     echo "boot_devnet: RESET=1 to re-init, or point DATADIR elsewhere." >&2
@@ -87,6 +93,11 @@ echo "== mining (Ctrl-C to stop) =="
 echo "   verify in another shell:  RPC=http://127.0.0.1:${HTTP_PORT:-8547} EXPECT_CHAINID=$NETWORKID scripts/verify_devnet.sh"
 # Rewards go to ETHERBASE; set it to your own address to keep what you mine.
 ETHERBASE="${ETHERBASE:-0x1000000000000000000000000000000000000001}"
+# core-geth reads --miner.threads 0 as "use every core"; only a NEGATIVE
+# value disables local mining. Same translation the container and dist
+# runners do, so THREADS=0 means here what it means everywhere else.
+THREADS_FLAG="${THREADS:-1}"
+[ "$THREADS_FLAG" = "0" ] && THREADS_FLAG=-1
 # Dedicated ports, env-overridable. The defaults (30303/8545/8551) are the
 # production node's on an operator host, so the README's canonical devnet
 # command used to die on "address already in use", or, with production
@@ -94,6 +105,6 @@ ETHERBASE="${ETHERBASE:-0x1000000000000000000000000000000000000001}"
 # crash loop. Every other booting script here is hermetic for this reason.
 exec "$GETH" --datadir "$DATADIR" --networkid "$NETWORKID" --nodiscover \
   --port "${PORT:-30306}" --authrpc.port "${AUTHRPC_PORT:-8554}" \
-  --mine --miner.threads "${THREADS:-1}" \
+  --mine --miner.threads "$THREADS_FLAG" \
   --miner.etherbase "$ETHERBASE" \
   --http --http.port "${HTTP_PORT:-8547}" --http.api eth,net,web3

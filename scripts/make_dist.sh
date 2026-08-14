@@ -22,6 +22,20 @@ for f in kawpow_core.go kawpow_engine.go difficulty_everett.go; do
 done
 cmp -s "$EVERETT/client/rewards_everett.go" "$SRC/params/mutations/rewards_everett.go" || {
   echo "FAIL: rewards_everett.go in $SRC differs from client/; re-run scripts/deploy_node.sh"; exit 1; }
+# The four cmp'd files are only the COPIED half of the patch set. A
+# hooks-only change (a new hook, or an edited hook body) leaves every one
+# of them and the pin untouched, so without these the packager would ship
+# a binary whose injected consensus blocks are stale or missing while
+# printing "packaged:". deploy_node.sh carries the same three checks; this
+# is the distribution channel catching up.
+python3 "$EVERETT/scripts/apply_kawpow_hooks.py" --verify \
+  "$SRC/consensus/ethash/consensus.go" "$SRC/consensus/ethash/sealer.go" \
+  "$SRC/eth/backend.go" "$SRC/cmd/utils/flags.go" \
+  || { echo "FAIL: KawPow hooks missing or outdated in $SRC"; exit 1; }
+python3 "$EVERETT/scripts/apply_hook.py" --verify "$SRC/params/mutations/rewards.go" \
+  || { echo "FAIL: reward hook missing or outdated in $SRC"; exit 1; }
+python3 "$EVERETT/scripts/apply_daa_hook.py" --verify "$SRC/consensus/ethash/consensus.go" \
+  || { echo "FAIL: ASERT hook missing or outdated in $SRC"; exit 1; }
 [ "$GETH" -nt "$SRC/consensus/ethash/kawpow_core.go" ] || {
   echo "FAIL: $GETH is older than its sources; rebuild before packaging"; exit 1; }
 
