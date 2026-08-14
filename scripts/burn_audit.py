@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Article IV audit: prove the 1559 base-fee burn on the live devnet.
 
+Scope limit, stated honestly: this models value flows visible to basic
+JSON-RPC. Any account touched by contract code is marked inexact and
+SKIPped rather than asserted, because internal transfers need
+debug_traceTransaction to see. Third-party payouts from a contract to an
+account this audit never saw touched remain uncoverable by that means.
+
 Full-chain accounting. For every block: credit its miner the constitutional
 reward; for every transaction: credit the miner the priority tip, debit the
 sender value + gas, credit the recipient the value, and accumulate
@@ -84,10 +90,16 @@ for n in range(1, head + 1):
         if tx["to"]:
             to = tx["to"].lower()
             bal[to] += val
-            # Value sent INTO code can flow onward internally, which
-            # basic RPC cannot see; exactness for that account is gone.
-            if val and rpc("eth_getCode", [to, "latest"]) not in ("0x", None):
+            # ANY call into code can move value invisibly to basic RPC, not
+            # just one carrying value: a zero-value withdraw() pays the
+            # SENDER from the contract's balance. Gating this on val != 0
+            # left both accounts modeled exactly and wrong, so the audit
+            # would have failed forever on a healthy chain, which is worse
+            # than admitting the model's limit. The sender is marked too,
+            # because it is the usual payee of such a call.
+            if rpc("eth_getCode", [to, "latest"]) not in ("0x", None):
                 inexact.add(to)
+                inexact.add(sender)
         elif okstatus and rec.get("contractAddress"):
             # Contract creation: the endowment lands on the new address.
             ca = rec["contractAddress"].lower()
