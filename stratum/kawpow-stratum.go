@@ -35,23 +35,29 @@ import (
 )
 
 var (
-	nodeURL   = flag.String("node", "http://127.0.0.1:8545", "Everett node RPC")
-	listen    = flag.String("listen", ":3333", "stratum listen address")
-	poll      = flag.Duration("poll", 250*time.Millisecond, "work poll interval")
-	shareDiff = flag.Int64("sharediff", 8_000_000, "share difficulty sent to miners (0 = share target == block target). At trivial chain difficulty a GPU finds hundreds of block-target solutions per second and drowns in its own submission queue; a fixed share difficulty caps the rate like pool vardiff. No block is ever lost: when chain difficulty is below sharediff every share is also a block, and above it the miner submits everything that clears the share bar, which includes every block solution.")
+	nodeURL = flag.String("node", "http://127.0.0.1:8545", "Everett node RPC")
+	listen  = flag.String("listen", ":3333", "stratum listen address")
+	poll    = flag.Duration("poll", 250*time.Millisecond, "work poll interval")
+	// The submit budget bounds what one HOST can spend of the node's KawPow
+	// verification time. The default clears any realistic rig: at the 8M
+	// default share target a 1.6 GH/s farm produces 200 shares/s, and a
+	// multi-4090 rig near 300 MH/s produces 37/s. A spammer wants
+	// thousands. Raised from 30/s after review pointed out that a large rig
+	// could sit ABOVE a 30/s budget and have real shares skipped.
+	submitRate  = flag.Float64("submitrate", 200, "per-host submits/sec forwarded to the node (0 = unlimited)")
+	submitBurst = flag.Float64("submitburst", 400, "per-host submit burst depth")
+	// maxPerIP counts CONCURRENT connections from one host. Set it to 0
+	// where the source address is not meaningful: behind Docker's published
+	// port every LAN miner arrives as the bridge gateway, so a nonzero cap
+	// would limit the whole LAN to that many miners.
+	maxPerIPFlag = flag.Int("maxperip", 4, "max concurrent connections per source host (0 = unlimited)")
+	shareDiff    = flag.Int64("sharediff", 8_000_000, "share difficulty sent to miners (0 = share target == block target). At trivial chain difficulty a GPU finds hundreds of block-target solutions per second and drowns in its own submission queue; a fixed share difficulty caps the rate like pool vardiff. No block is ever lost: when chain difficulty is below sharediff every share is also a block, and above it the miner submits everything that clears the share bar, which includes every block solution.")
 )
 
 const (
 	// maxClients caps concurrent miner connections (see handle()).
 	maxClients = 128
-	// maxPerIP caps connections from ONE host. The submit budget is
-	// per-client, so without this a single machine multiplies its budget by
-	// opening more sockets: ten connections from one host measurably
-	// degraded the honest miner's delivery in testing. Four is generous for
-	// a real rig (several miner instances behind one address) and removes
-	// the multiplier. Loopback is exempt: the operator's own tooling and
-	// the e2e harness connect from there.
-	maxPerIP = 4
+
 	// handshakeTimeout bounds an UNAUTHORIZED connection. A real miner
 	// subscribes and authorizes within milliseconds; a socket that opens
 	// and says nothing is a squatter holding a 64 KiB buffer and a slot.
@@ -176,45 +182,132 @@ type client struct {
 	// every forward slot and starve both the honest miner's winning share and
 	// new-work generation, without doing any proof of work itself.
 	//
-	// A token bucket, NOT a one-in-flight latch. The latch was tried first
-	// and was wrong: an honest 25 MH/s rig at the 8M share target submits
-	// roughly 3 shares a second, and a node call takes a few milliseconds, so
-	// the rig's own submits sometimes overlap. The latch dropped the second
-	// one, and a dropped submit can be the block-winning one. This bucket is
-	// far above any honest rate and far below a spammer's, so it separates
-	// them by rate rather than by luck. Guarded by bucketMu.
-	bucketMu   sync.Mutex
+	// The submit budget belongs to the HOST, not to this connection: see
+	// hostBuckets. A per-connection bucket was tried and was bypassable by
+	// closing and reopening the socket, which granted a fresh burst each
+	// time (measured: reconnect churn bought multiples of the node work a
+	// persistent connection could).
+	bucket *tokenBucket
+	host   string
+}
+
+// tokenBucket is the per-HOST submit budget. It outlives any single
+// connection so reconnecting inherits the drained budget.
+type tokenBucket struct {
+	mu         sync.Mutex
 	tokens     float64
 	lastRefill time.Time
+	refs       int // live connections from this host
+	inFlight   int // forwards from this host currently at the node
+}
+
+// maxInFlightPerHost bounds how many of the shared forward slots ONE host
+// may occupy at once. The token bucket bounds a host's total spend, but
+// spend and fairness are different problems: a budget generous enough for a
+// 1.6 GH/s farm is also generous enough to keep every slot busy, and the
+// slot pool DROPS a submit when full, so the honest miner's share is what
+// gets lost. Two of four leaves room for an honest rig's occasional
+// overlapping submits while guaranteeing another host can always get in.
+const maxInFlightPerHost = 2
+
+// reserveSlot reports whether this host may occupy another forward slot.
+func (b *tokenBucket) reserveSlot() bool {
+	if b == nil {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.inFlight >= maxInFlightPerHost {
+		return false
+	}
+	b.inFlight++
+	return true
+}
+
+func (b *tokenBucket) releaseSlot() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	if b.inFlight > 0 {
+		b.inFlight--
+	}
+	b.mu.Unlock()
+}
+
+var (
+	hostBucketsMu sync.Mutex
+	hostBuckets   = map[string]*tokenBucket{}
+)
+
+// bucketFor returns the host's budget, creating it on first sight. refs is
+// incremented so releaseBucket knows when the entry can be dropped.
+func bucketFor(host string) *tokenBucket {
+	hostBucketsMu.Lock()
+	defer hostBucketsMu.Unlock()
+	b := hostBuckets[host]
+	if b == nil {
+		b = &tokenBucket{tokens: float64(*submitBurst), lastRefill: time.Now()}
+		hostBuckets[host] = b
+	}
+	b.refs++
+	return b
+}
+
+// releaseBucket drops the entry only when the host has no live connections
+// AND its budget has fully refilled, so a churning host cannot discard a
+// drained bucket by disconnecting.
+func releaseBucket(host string) {
+	hostBucketsMu.Lock()
+	defer hostBucketsMu.Unlock()
+	b := hostBuckets[host]
+	if b == nil {
+		return
+	}
+	b.refs--
+	if b.refs > 0 {
+		return
+	}
+	b.mu.Lock()
+	full := b.tokens >= float64(*submitBurst)
+	b.mu.Unlock()
+	if full {
+		delete(hostBuckets, host)
+	}
 }
 
 func strip0x(s string) string { return strings.TrimPrefix(s, "0x") }
 
-const (
-	// submitRate is the sustained per-client submit budget, and submitBurst
-	// the depth. An honest rig runs near 3/s; a spammer runs thousands.
-	submitRate  = 30.0
-	submitBurst = 60.0
-)
-
-// takeToken reports whether this client may spend a node verification now.
+// takeToken reports whether this client's HOST may spend a node
+// verification now.
 func (c *client) takeToken() bool {
-	c.bucketMu.Lock()
-	defer c.bucketMu.Unlock()
+	b := c.bucket
+	if b == nil {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	now := time.Now()
-	if c.lastRefill.IsZero() {
-		c.tokens, c.lastRefill = submitBurst, now
+	b.tokens += now.Sub(b.lastRefill).Seconds() * float64(*submitRate)
+	if b.tokens > float64(*submitBurst) {
+		b.tokens = float64(*submitBurst)
 	}
-	c.tokens += now.Sub(c.lastRefill).Seconds() * submitRate
-	if c.tokens > submitBurst {
-		c.tokens = submitBurst
-	}
-	c.lastRefill = now
-	if c.tokens < 1 {
+	b.lastRefill = now
+	if b.tokens < 1 {
 		return false
 	}
-	c.tokens--
+	b.tokens--
 	return true
+}
+
+// hostOf identifies the source host a connection is budgeted against.
+// It is a var so tests can model a real topology: every test connection
+// arrives on loopback, so with the real function a "spammer" and the
+// honest miner would share one budget and the test would assert the
+// wrong thing.
+var hostOf = func(conn net.Conn) string {
+	h, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	return h
 }
 
 // exemptLoopback lets the operator's own tooling (and the e2e harness)
@@ -378,7 +471,7 @@ func handle(conn net.Conn) {
 	// scanner buffer and an entry in the clients map for as long as it
 	// stays open. A solo sidecar serves a handful of rigs; 128 is far
 	// above any real fleet and far below a resource problem.
-	host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	host := hostOf(conn)
 	mu.Lock()
 	if len(clients) >= maxClients {
 		mu.Unlock()
@@ -386,29 +479,31 @@ func handle(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	if !(exemptLoopback && (host == "127.0.0.1" || host == "::1")) {
+	if *maxPerIPFlag > 0 && !(exemptLoopback && (host == "127.0.0.1" || host == "::1")) {
 		same := 0
 		for c := range clients {
-			if h, _, err := net.SplitHostPort(c.RemoteAddr().String()); err == nil && h == host {
+			if hostOf(c) == host {
 				same++
 			}
 		}
-		if same >= maxPerIP {
+		if *maxPerIPFlag > 0 && same >= *maxPerIPFlag {
 			mu.Unlock()
-			log.Printf("refusing %s: %d connections already from that host (per-IP cap)", conn.RemoteAddr(), same)
+			log.Printf("refusing %s: %d connections already from that host (per-IP cap %d)", conn.RemoteAddr(), same, *maxPerIPFlag)
 			conn.Close()
 			return
 		}
 	}
 	extraSeq++
 	c := &client{conn: conn, enc: json.NewEncoder(conn),
-		extranonce: fmt.Sprintf("%04x", extraSeq&0xffff)}
+		extranonce: fmt.Sprintf("%04x", extraSeq&0xffff),
+		host:       host, bucket: bucketFor(host)}
 	clients[conn] = c
 	mu.Unlock()
 	defer func() {
 		mu.Lock()
 		delete(clients, conn)
 		mu.Unlock()
+		releaseBucket(host)
 		conn.Close()
 	}()
 	log.Printf("miner connected from %s (extranonce %s)", conn.RemoteAddr(), c.extranonce)
@@ -554,19 +649,32 @@ func (c *client) submit(params []interface{}) bool {
 	// wrong. What is bounded instead is cost: one forward per client at a
 	// time, and four overall.
 	if !c.takeToken() {
-		// This client is submitting far faster than any real miner can find
-		// shares. Ack it (a miner must never stall on our accounting) but
-		// do not spend a node verification on it.
+		// Over budget. Reply FALSE, not true: acking a submit we never
+		// forwarded tells the miner its share was taken when it was not, so
+		// a block-winning nonce would be dropped silently and never retried.
+		// A rejected share is visible in the miner's own log, which is the
+		// signal an operator needs to raise -submitrate or -sharediff.
 		nSkipped := forwardsSkipped.Add(1)
-		if nSkipped == 1 || nSkipped%500 == 0 {
-			log.Printf("submits rate-limited from %s: %d so far", c.conn.RemoteAddr(), nSkipped)
+		if nSkipped == 1 || nSkipped%100 == 0 {
+			log.Printf("submits over budget from %s: %d so far (raise -submitrate or -sharediff if this is a real rig)",
+				c.conn.RemoteAddr(), nSkipped)
 		}
-		return true
+		return false
+	}
+	if !c.bucket.reserveSlot() {
+		// This host already occupies its share of the forward pool. Reply
+		// false rather than pretending we took it.
+		nSkipped := forwardsSkipped.Add(1)
+		if nSkipped == 1 || nSkipped%100 == 0 {
+			log.Printf("submits deferred, host %s already has %d forwards in flight: %d so far",
+				c.host, maxInFlightPerHost, nSkipped)
+		}
+		return false
 	}
 	select {
 	case forwardSlots <- struct{}{}:
 		go func() {
-			defer func() { <-forwardSlots }()
+			defer func() { <-forwardSlots; c.bucket.releaseSlot() }()
 			var accepted bool
 			err := nodeCall("eth_submitWork",
 				[]string{"0x" + n, "0x" + strip0x(header), "0x" + strip0x(mix)}, &accepted)
@@ -587,12 +695,15 @@ func (c *client) submit(params []interface{}) bool {
 			}
 		}()
 	default:
-		// All forward slots busy (node stalled). Dropping the forward loses
-		// nothing a later share will not redo.
+		// All forward slots busy (the node is stalled). Reply FALSE for the
+		// same reason as the budget path: this share was not forwarded, and
+		// telling the miner otherwise is how a winning nonce disappears.
+		c.bucket.releaseSlot()
 		nDropped := forwardsDropped.Add(1)
 		if nDropped == 1 || nDropped%50 == 0 {
 			log.Printf("forwards dropped while node busy: %d so far", nDropped)
 		}
+		return false
 	}
 	return true
 }

@@ -24,6 +24,15 @@ import (
 // property that matters: while a spammer submits as fast as it can, an
 // honest miner's submits still reach the node.
 func TestSpamClientCannotStarveHonestMiner(t *testing.T) {
+	// Set BEFORE any goroutine can read it: handle() reads hostOf, so
+	// assigning it once the accept loop is live is a data race in the
+	// harness (the race detector caught exactly that).
+	saveHostOf := hostOf
+	var nextHost atomic.Value
+	nextHost.Store("10.0.0.1")
+	hostOf = func(net.Conn) string { return nextHost.Load().(string) }
+	defer func() { hostOf = saveHostOf }()
+
 	var nodeCalls atomic.Int64
 	var honestSeen atomic.Int64
 	// The fake node is SLOW, like a real one running KawPow verification.
@@ -110,7 +119,10 @@ func TestSpamClientCannotStarveHonestMiner(t *testing.T) {
 	}
 
 	spam := dial(t)
+	time.Sleep(50 * time.Millisecond) // let handle() bind that host
+	nextHost.Store("10.0.0.2")
 	honest := dial(t)
+	time.Sleep(50 * time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 
 	stop := make(chan struct{})
@@ -190,10 +202,10 @@ func TestPerIPCapStopsBudgetMultiplication(t *testing.T) {
 	mu.Lock()
 	registered := len(clients)
 	mu.Unlock()
-	if registered > maxPerIP {
+	if registered > *maxPerIPFlag {
 		t.Fatalf("per-IP cap did not hold: %d connections registered from one host, cap is %d",
-			registered, maxPerIP)
+			registered, *maxPerIPFlag)
 	}
 	t.Logf("attempted %d connections from one host, %d registered (cap %d)",
-		attempts, registered, maxPerIP)
+		attempts, registered, *maxPerIPFlag)
 }
