@@ -34,17 +34,20 @@ Sidecar:
 NODE=http://127.0.0.1:8545 LISTEN=:3333 ../scripts/run_stratum.sh
 ```
 
-Miner (note `stratum+tcp://` (forces the mode-0 dialect this sidecar speaks), not `http://` and not bare `stratum://`, and the address is the payout):
+Miner (note `stratum+tcp://` (forces the mode-0 dialect this sidecar speaks), not `http://` and not bare `stratum://`):
 
 ```bash
 kawpowminer -U -P stratum+tcp://0xYourAddress@<sidecar-host>:3333
 ```
 
-The payout address rides in the stratum username, so the node's
-`--miner.etherbase` becomes a placeholder: solo shares that meet the block
-target are submitted as blocks and credited by the node to whatever the
-submitted work resolves to. (For per-miner payout accounting, a real pool
-would track shares; solo mode does not need to.)
+**Payout goes to the node's `--miner.etherbase`, not to the stratum
+username.** Solo shares that meet the block target are forwarded verbatim
+as `eth_submitWork`, which seals the block template the node already
+assembled with its own etherbase as coinbase. The `0xYourAddress` in the
+miner URL is accepted for miner-client compatibility and shows up in the
+sidecar's logs, but it never reaches the node: to receive rewards, set
+`--miner.etherbase` on the node to your address. (A real pool would track
+per-miner shares for payout accounting; solo mode does not need to.)
 
 ## Protocol (mode 0 / "kawpow stratum")
 
@@ -72,7 +75,7 @@ Implemented per `../G6_P1_NOTES.md` §4.2, cross-checked against kawpowminer's
 **The miner URL must use the `stratum+tcp://` scheme.** Verified on the
 devnet with kawpowminer 1.2.4 on an RTX 3080:
 
-- `stratum+tcp://0xADDR@host:3333` forces plain mode-0 stratum — the
+- `stratum+tcp://0xADDR@host:3333` forces plain mode-0 stratum, the
   dialect this sidecar speaks. subscribe → authorize → notify → submit all
   worked first try; the GPU's first job produced a burst of accepted
   blocks.
@@ -80,14 +83,14 @@ devnet with kawpowminer 1.2.4 on an RTX 3080:
   EthereumStratum/1.0.0 (NiceHash) → Eth-Proxy and never tries mode 0.
   It then half-works in the worst way: the Eth-Proxy login gets no valid
   answer, the session goes dead, but broadcast `mining.notify` frames
-  still reach the socket — so the GPU hashes at full speed and wastes
+  still reach the socket, so the GPU hashes at full speed and wastes
   every solution ("Solution 0x… wasted. Waiting for connection...").
 
 The sidecar now answers any unknown method with an explicit JSON-RPC
 error naming the fix (`connect with stratum+tcp://`) and logs the method,
 so a dialect mismatch is loud on both ends instead of a silent stall.
 Speaking NiceHash 1.0.0 natively (different subscribe shape, extranonce
-nonce composition) stays future work — pools need it, solo miners don't.
+nonce composition) stays future work: pools need it, solo miners don't.
 
 ## Three more findings the first live runs paid for (2026-08-13)
 

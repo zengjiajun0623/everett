@@ -1,13 +1,14 @@
-# Everett devnet stack: node + external GPU miner.
+# Everett devnet stack: node + stratum sidecar for GPU miners.
 # Works with `docker compose up -d --build` and with Portainer stacks
 # (custom-paste and git-repo modes) - see docker/README.md for the GUI
 # walkthrough and the environment variable table.
 #
 # Default: DEVNET (genesis-dev.json, chain ID 15537391, --nodiscover,
-# throwaway etherbase, zero CPU mining threads - work is served to the GPU
-# miner over the internal network only). 15537393 is RESERVED for mainnet;
-# the legacy genesis-devnet.json still carries it and ships only for
-# compatibility with stacks already running it.
+# throwaway etherbase, zero CPU mining threads), with KawPow selected
+# (EVERETT_KAWPOW=1) so the stratum sidecar + a KawPow miner work end to
+# end, the same PoW Wheeler and mainnet run. 15537393 is RESERVED for
+# mainnet; the legacy genesis-devnet.json still carries it and ships only
+# for compatibility with stacks already running it (pre-flip builds).
 #
 # For Wheeler (testnet, chain ID 15537392) set:
 #   GENESIS:   genesis-wheeler.json
@@ -31,6 +32,10 @@ services:
       # Throwaway devnet address; replace with your own EOA to keep coins.
       ETHERBASE: "0x1000000000000000000000000000000000000001"
       MINER_THREADS: "0"
+      # KawPow on the dev chain (Wheeler/mainnet are KawPow regardless).
+      # Unset this only to run a legacy ethash devnet with the miner
+      # service below (profile ethash-legacy).
+      EVERETT_KAWPOW: "1"
       # NETWORKID: 15537391   # auto-derived from GENESIS when unset
       # BOOTNODE: ""          # set for Wheeler; --nodiscover when unset
     ports:
@@ -65,15 +70,19 @@ services:
     ports:
       # Stratum for KawPow miners (kawpowminer/T-Rex). LAN-wide by
       # default so GPUs on other machines can mine to your node:
-      #   kawpowminer -U -P stratum+tcp://0xYourAddr@<host>:3333
-      # (the +tcp matters: it forces the mode-0 dialect — stratum/README.md)
+      #   kawpowminer -U -P stratum+tcp://worker@<host>:3333
+      # (the +tcp matters: it forces the mode-0 dialect, stratum/README.md)
+      # Payouts go to the NODE's ETHERBASE above; the stratum username is
+      # logging only and never reaches the chain.
       - "3333:3333"
     restart: unless-stopped
 
-  # NOTE: the ethminer service below is ETHASH-ONLY (devnet plumbing).
-  # It cannot mine Wheeler v2 or mainnet (KawPow) — use the stratum
-  # service above with a KawPow miner instead.
+  # NOTE: the ethminer service below is ETHASH-ONLY (legacy devnet
+  # plumbing). It cannot mine KawPow, and the default stack IS KawPow now,
+  # so it stays behind a profile: it only starts with
+  #   docker compose --profile ethash-legacy up  (plus EVERETT_KAWPOW unset)
   miner:
+    profiles: ["ethash-legacy"]
     image: everett-miner:local
     build:
       context: ..

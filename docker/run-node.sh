@@ -34,11 +34,19 @@ esac
 # Art. VIII: mainnet begins with a launch ceremony, not an env var. The
 # reserved genesis ships in the image so ceremony infrastructure can use
 # this packaging, but it refuses to start without an explicit
-# acknowledgment — a convenience image must not run the reserved chain
-# casually.
-if [ "$GENESIS" = "genesis.json" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
-  echo "run-node: genesis.json (chain ID 15537393) is RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
+# acknowledgment: a convenience image must not run the reserved chain
+# casually. The guard keys on the CONTENT (chain ID 15537393), not the
+# filename, so an absolute-path GENESIS or the legacy genesis-devnet.json
+# cannot slip past it.
+if [ ! -f "$GENESIS_FILE" ]; then
+  echo "run-node: genesis file not found: $GENESIS_FILE" >&2
+  exit 1
+fi
+if grep -Eq '"chainId"[[:space:]]*:[[:space:]]*15537393' "$GENESIS_FILE" \
+   && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
+  echo "run-node: $GENESIS carries chain ID 15537393, RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
   echo "run-node: use genesis-dev.json (devnet) or genesis-wheeler.json (testnet); set EVERETT_ART_VIII_CEREMONY=1 only as part of the ceremony." >&2
+  echo "run-node: (legacy genesis-devnet.json stacks: those datadirs need a pre-flip build anyway; see docker/README.md.)" >&2
   exit 1
 fi
 

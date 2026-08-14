@@ -8,8 +8,9 @@
 # selects; other chains: forced off — see client/kawpow_engine.go).
 #
 # Pinned versions: golang:1.23-bookworm (build), ubuntu:24.04 (runtime),
-# core-geth pinned by COREGETH_COMMIT (the tree all Everett gates were
-# verified against; ci_prepare.sh still tracks upstream HEAD for CI).
+# core-geth pinned by COREGETH_COMMIT, the same pin ci_prepare.sh and
+# join_wheeler_wsl.sh carry; scripts/check_consistency.py asserts the
+# three never diverge.
 
 FROM golang:1.23-bookworm AS build
 
@@ -22,9 +23,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Step 1: fetch upstream core-geth PINNED to the commit every Everett gate
-# has been verified against (ci_prepare.sh clones default-branch HEAD; an
-# image build must be reproducible, so it pins). Override with
-# --build-arg COREGETH_COMMIT=... to track a newer upstream deliberately.
+# has been verified against, the same pin ci_prepare.sh uses. Override with
+# --build-arg COREGETH_COMMIT=... to track a newer upstream deliberately
+# (the consistency gate will then demand the scripts move too).
 ARG COREGETH_COMMIT=10f1ea745cd89d72c398484a234cdc7fb29ecc32
 RUN git init /src/core-geth \
  && git -C /src/core-geth remote add origin https://github.com/etclabscore/core-geth \

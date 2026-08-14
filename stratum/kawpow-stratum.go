@@ -4,11 +4,11 @@
 // expect (G6_P1_NOTES.md §4.2, derived from kawpowminer's EthStratumClient
 // source), backed by the node's eth_getWork/eth_submitWork RPC:
 //
-//   miner → mining.subscribe            → [null, extranonce]
-//   miner → mining.authorize            → true
-//   node  → mining.set_target [target64]
-//   node  → mining.notify [jobId, header64, seed64, target64, clean, height, bits]
-//   miner → mining.submit [user, jobId, 0xnonce16, 0xheader64, 0xmix64] → bool
+//	miner → mining.subscribe            → [null, extranonce]
+//	miner → mining.authorize            → true
+//	node  → mining.set_target [target64]
+//	node  → mining.notify [jobId, header64, seed64, target64, clean, height, bits]
+//	miner → mining.submit [user, jobId, 0xnonce16, 0xheader64, 0xmix64] → bool
 //
 // Vardiff solo mode: miners are sent a fixed-difficulty SHARE target
 // (-sharediff, default 8M) so the submission rate stays sane at any chain
@@ -43,6 +43,27 @@ var (
 
 // two256 = 2^256, the difficulty-to-target conversion base.
 var two256 = new(big.Int).Lsh(big.NewInt(1), 256)
+
+// maxTarget is the largest 256-bit target. sharediff 1 is a legal flag
+// value and divides two256 to exactly 2^256, one past this: unclamped it
+// would emit a 65-hex-char target and compact bits that overflow the
+// miner's SetCompact.
+var maxTarget = new(big.Int).Sub(two256, big.NewInt(1))
+
+// shareTarget converts a share difficulty into the target sent to miners;
+// diff <= 0 means "share target == block target". The result always fits
+// in 256 bits, so %064x renders exactly 64 hex chars and toCompact yields
+// bits that SetCompact decodes without overflow.
+func shareTarget(diff int64, blockT *big.Int) *big.Int {
+	if diff <= 0 {
+		return blockT
+	}
+	st := new(big.Int).Div(two256, big.NewInt(diff))
+	if st.Cmp(maxTarget) > 0 {
+		st.Set(maxTarget)
+	}
+	return st
+}
 
 // --- node RPC ----------------------------------------------------------------
 
@@ -96,29 +117,30 @@ type work struct {
 	height uint64
 	bits   string
 	done   bool // guarded by mu: a block was found for this job, or a
-	            // newer job superseded it. Solo mode needs exactly ONE
-	            // solution per job to reach the node; at trivial devnet
-	            // difficulty a GPU finds hundreds per second, and
-	            // forwarding them all (each a synchronous node roundtrip
-	            // in the read loop) backs up submit replies past the
-	            // miner's 2-second response watchdog — it disconnects and
-	            // wastes everything. Cost one 12-minute run to learn.
+	// newer job superseded it. Solo mode needs exactly ONE
+	// solution per job to reach the node; at trivial devnet
+	// difficulty a GPU finds hundreds per second, and
+	// forwarding them all (each a synchronous node roundtrip
+	// in the read loop) backs up submit replies past the
+	// miner's 2-second response watchdog — it disconnects and
+	// wastes everything. Cost one 12-minute run to learn.
 }
 
 var (
-	mu      sync.Mutex
-	current *work
-	jobs    = map[string]*work{} // jobId -> work
-	jobSeq  int
-	clients = map[net.Conn]*client{}
+	mu       sync.Mutex
+	current  *work
+	jobs     = map[string]*work{} // jobId -> work
+	jobOrder []string             // jobs keys in insertion order, oldest first (guarded by mu)
+	jobSeq   int
+	clients  = map[net.Conn]*client{}
 )
 
 type client struct {
-	conn       net.Conn
-	enc        *json.Encoder
-	writeMu    sync.Mutex // json.Encoder is not concurrency-safe; the poller
-	                      // broadcasts jobs while this client's goroutine
-	                      // writes submit replies. Serialize both.
+	conn    net.Conn
+	enc     *json.Encoder
+	writeMu sync.Mutex // json.Encoder is not concurrency-safe; the poller
+	// broadcasts jobs while this client's goroutine
+	// writes submit replies. Serialize both.
 	extranonce string
 	authorized bool
 	worker     string
@@ -160,10 +182,7 @@ func pollWork() {
 				t = big.NewInt(0)
 			}
 			height, _ := strconv.ParseUint(strip0x(res[3]), 16, 64)
-			shareT := t
-			if *shareDiff > 0 {
-				shareT = new(big.Int).Div(two256, big.NewInt(*shareDiff))
-			}
+			shareT := shareTarget(*shareDiff, t)
 			w := &work{
 				jobID:  fmt.Sprintf("%08x", jobSeq),
 				header: header,
@@ -187,12 +206,16 @@ func pollWork() {
 			}
 			current = w
 			jobs[w.jobID] = w
-			if len(jobs) > 16 {
-				for id := range jobs {
-					if id != w.jobID && len(jobs) > 16 {
-						delete(jobs, id)
-					}
-				}
+			jobOrder = append(jobOrder, w.jobID)
+			// Trim the OLDEST retired job, deterministically. Map-iteration
+			// eviction picked a random victim, which could be the job we
+			// retired one line up: the one whose shares are still in TCP
+			// flight from the GPU and need the instant-ack path in submit().
+			// jobOrder is FIFO, so index 0 is always the oldest and can never
+			// be the just-appended current job while len > 16.
+			for len(jobOrder) > 16 {
+				delete(jobs, jobOrder[0])
+				jobOrder = jobOrder[1:]
 			}
 			// Snapshot clients under the lock; send outside it so a slow
 			// miner's socket cannot stall job propagation to the others.
@@ -344,6 +367,12 @@ func (c *client) submit(params []interface{}) bool {
 		log.Printf("submit nonce %q fails extranonce %s check", nonce, c.extranonce)
 		// Solo mode: accept anyway; the prefix is advisory when one miner owns the space.
 	}
+	// Capture the worker name NOW, on this goroutine: submit() runs on the
+	// same read-loop goroutine that writes c.worker in the authorize case,
+	// so this read is ordered. The forward goroutine below must not touch
+	// c.worker itself: a miner re-sending mining.authorize while a forward
+	// is in flight would race the read-loop write against that read.
+	worker := c.worker
 	// Ack instantly and forward ASYNC. The node can stall for seconds
 	// digesting a block burst; a synchronous forward here puts that stall
 	// on the miner's reply path and trips its 2-second response watchdog
@@ -365,7 +394,7 @@ func (c *client) submit(params []interface{}) bool {
 				mu.Lock()
 				w.done = true
 				mu.Unlock()
-				log.Printf("BLOCK: job %s height=%d nonce=%s from %s", jobID, w.height, nonce, c.worker)
+				log.Printf("BLOCK: job %s height=%d nonce=%s from %s", jobID, w.height, nonce, worker)
 			} else {
 				nBelow := sharesBelow.Add(1)
 				if nBelow == 1 || nBelow%50 == 0 {

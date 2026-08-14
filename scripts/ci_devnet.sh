@@ -4,9 +4,14 @@
 # or schedule regression fails here even if unit tests pass.
 set -euo pipefail
 EVERETT=$(cd "$(dirname "$0")/.." && pwd)
-cd "$EVERETT/build/core-geth"
+# The gate preps and builds its OWN tree, never build/core-geth: that default
+# path is what the launchd production node execs from on an operator host,
+# and a gate must not be able to rebuild or invalidate the live binary.
+export COREGETH_DIR="${COREGETH_DIR:-$EVERETT/build/ci/core-geth}"
+bash "$EVERETT/scripts/ci_prepare.sh"
+cd "$COREGETH_DIR"
 make geth
-GETH="$EVERETT/build/core-geth/build/bin/geth"
+GETH="$COREGETH_DIR/build/bin/geth"
 DATA="$EVERETT/build/ci-devnet"
 
 rm -rf "$DATA"

@@ -188,8 +188,8 @@ func kawpowFullFor(number uint64) []uint32 {
 }
 
 var (
-	kpDatasetMu    sync.Mutex // guards the mining DAG build, separate from
-	                          // kpMu so it never blocks verification
+	kpDatasetMu sync.Mutex // guards the mining DAG build, separate from
+	// kpMu so it never blocks verification
 	kpDataset      []uint32
 	kpDatasetEpoch uint64 = ^uint64(0)
 )
@@ -199,9 +199,9 @@ var (
 func kawpowComputeFull(hash []byte, nonce uint64, number uint64) ([]byte, []byte) {
 	e := kawpowEpochFor(number)
 	ds := kawpowFullFor(number)
-	lookup := func(index uint32) []byte {
+	lookup := func(index uint64) []byte {
 		mix := make([]byte, hashBytes)
-		for i := uint32(0); i < hashWords; i++ {
+		for i := uint64(0); i < hashWords; i++ {
 			binary.LittleEndian.PutUint32(mix[i*4:], ds[index+i])
 		}
 		return mix

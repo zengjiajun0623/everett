@@ -2,7 +2,7 @@
 
 Run an Everett node plus an external GPU miner (ethminer over RPC,
 `eth_getWork`/`eth_submitWork`) with Docker. Deploy with either the CLI or
-Portainer's GUI — the same `docker-compose.yml` serves both.
+Portainer's GUI; the same `docker-compose.yml` serves both.
 
 The node image is built from source inside Docker and runs **the
 verification gates as part of the build**: the build aborts if
@@ -15,14 +15,16 @@ script is modified by this packaging.
 docker/
 ├── node.Dockerfile      # core-geth + Everett patches, gates, build
 ├── stratum.Dockerfile   # kawpow-stratum sidecar (KawPow miners connect here)
-├── miner.Dockerfile     # ethminer v0.19.0 + CUDA 11.8, sm_86 — ETHASH ONLY
+├── miner.Dockerfile     # ethminer v0.19.0 + CUDA 11.8, sm_86; ETHASH ONLY
 ├── run-node.sh          # container entrypoint (geth init + run)
 └── docker-compose.yml   # node + stratum + miner stack (CLI and Portainer)
 ```
 
-KawPow networks (Wheeler v2, mainnet): mine via the **stratum** service —
-point kawpowminer/T-Rex at `stratum+tcp://0xYourAddr@<host>:3333`. The
-ethminer image is ethash-only devnet plumbing.
+KawPow networks (Wheeler v2, mainnet): mine via the **stratum** service.
+Point kawpowminer/T-Rex at `stratum+tcp://worker@<host>:3333`. Payouts go
+to the node's `ETHERBASE`; the stratum username is logging only. The
+ethminer image is ethash-only legacy plumbing behind the `ethash-legacy`
+compose profile.
 
 ## Pinned versions
 
@@ -33,7 +35,7 @@ ethminer image is ethash-only devnet plumbing.
 | core-geth | commit `10f1ea74…` (pinned via `COREGETH_COMMIT` build arg) | the tree every Everett gate was verified against; blst v0.3.17 + memsize excision applied in-build |
 | Build base (miner) | `nvidia/cuda:11.8.0-devel-ubuntu22.04` | CUDA 11.8 is battle-tested for Ampere; CUDA 12 breaks the old ethminer build |
 | Runtime base (miner) | `nvidia/cuda:11.8.0-runtime-ubuntu22.04` | matched to the 11.8 toolkit |
-| ethminer | `v0.19.0` (`ethereum-mining/ethminer`) | the upstream repo is archived; its last release tag is v0.19.0 — **there is no v0.20.0 tag upstream**, so v0.19.0 is the pinned "old ethminer" build |
+| ethminer | `v0.19.0` (`ethereum-mining/ethminer`) | the upstream repo is archived; its last release tag is v0.19.0. **There is no v0.20.0 tag upstream**, so v0.19.0 is the pinned "old ethminer" build |
 | CUDA arch | `sm_86` via `-DCOMPUTE=86` | ethminer's legacy FindCUDA build ignores `CMAKE_CUDA_ARCHITECTURES`; `COMPUTE` is its native flag. RTX 3090 = sm_86 |
 | Host driver | >= 520 | 3090 on Ubuntu 24.04: 545+ recommended (580 verified in testing) |
 
@@ -60,7 +62,7 @@ nvidia-smi                 # driver >= 520; your GPU must be sm_86 (3090) or edi
 docker run --rm --gpus all nvidia/cuda:11.8.0-runtime-ubuntu22.04 nvidia-smi
 ```
 
-Data volumes (create once; containers run as root, so this is optional —
+Data volumes (create once; containers run as root, so this is optional:
 Docker creates them on first start):
 
 ```bash
@@ -73,12 +75,14 @@ sudo mkdir -p /opt/docker/everett-node /opt/docker/everett-miner
 
 ```bash
 git clone https://github.com/zengjiajun0623/everett && cd everett
-docker build -f docker/node.Dockerfile  -t everett-node:local .
-docker build -f docker/miner.Dockerfile -t everett-miner:local .
+docker build -f docker/node.Dockerfile    -t everett-node:local .
+docker build -f docker/stratum.Dockerfile -t everett-stratum:local .
+docker build -f docker/miner.Dockerfile   -t everett-miner:local .
 ```
 
 The node build runs `TestEverett` + `TestASERT` + `TestKawPow` and **fails
-the build** if any suite fails. Expect 5-20 min (node) and 15-30 min
+the build** if any suite fails. Expect 5-20 min (node), under a minute
+(stratum: a small Go build with its own vet + test gate), and 15-30 min
 (miner: CUDA toolchain pull + ethminer compile + Boost via Hunter).
 
 ### Portainer GUI
@@ -87,13 +91,16 @@ the build** if any suite fails. Expect 5-20 min (node) and 15-30 min
 2. *Repository URL:* `https://github.com/zengjiajun0623/everett` (or your
    fork), *Reference:* `main` (or `docker-support` while in review).
 3. *Dockerfile path:* `docker/node.Dockerfile`; name `everett-node:local`.
-4. Repeat for `docker/miner.Dockerfile` → `everett-miner:local`.
+4. Repeat for `docker/stratum.Dockerfile` → `everett-stratum:local`.
+5. Repeat for `docker/miner.Dockerfile` → `everett-miner:local`.
 
 ## Deploy the stack
 
 The stack defaults to **devnet** (`genesis-dev.json`, chain ID 15537391,
-`--nodiscover`, throwaway etherbase, GPU miner only — the node mines zero
-CPU threads and just serves work to ethminer).
+`--nodiscover`, throwaway etherbase) running **KawPow** (`EVERETT_KAWPOW=1`),
+with the node mining zero CPU threads and serving work through the stratum
+sidecar to any KawPow miner. The ethash-only ethminer service starts only
+with `--profile ethash-legacy` (plus `EVERETT_KAWPOW` unset).
 
 ### Portainer GUI (recommended)
 
@@ -104,14 +111,15 @@ CPU threads and just serves work to ethminer).
    (*Reference:* `main`, or the `docker-support` branch while in review).
 3. *Compose path:* `docker/docker-compose.yml`.
 4. Name it `everett`, click **Build and deploy**. Portainer clones the repo,
-   builds both images, and starts the stack. Done.
+   builds all three images, and starts the stack. Done.
 
 **Custom-paste mode** (images already built):
 
-1. Build both images via *Images → Build a new image* as above (or CLI).
+1. Build all three images (node, stratum, miner) via *Images → Build a
+   new image* as above (or CLI).
 2. **Stacks → Add stack → Web editor**, paste the contents of
    `docker/docker-compose.yml`, name it `everett`.
-3. Click **Deploy the stack** (not "Build and deploy" — the images are
+3. Click **Deploy the stack** (not "Build and deploy": the images are
    already local; pasted stacks have no repo context for `build.context`).
 
 ### CLI equivalent
@@ -127,19 +135,19 @@ stack sets its own value, that is listed too.
 
 | Variable | Image default | Compose stack | Purpose |
 |---|---|---|---|
-| `GENESIS` | `genesis-dev.json` | same | `genesis-dev.json` (devnet, 15537391), `genesis-wheeler.json` (Wheeler testnet), `genesis.json` (mainnet — reserved, do not use casually), `genesis-devnet.json` (legacy devnet — carries the reserved mainnet chain ID; only for stacks already running it), or an absolute path |
+| `GENESIS` | `genesis-dev.json` | same | `genesis-dev.json` (devnet, 15537391), `genesis-wheeler.json` (Wheeler testnet), `genesis.json` (mainnet: reserved, do not use casually), `genesis-devnet.json` (legacy devnet: carries the reserved mainnet chain ID, and its old ethash datadirs do NOT work under current images; see Safety notes), or an absolute path |
 | `MINE` | `0` (sync-only) | `1` | `1` = enable mining (`--mine`); `0` = sync-only node |
 | `ETHERBASE` | unset | throwaway `0x1000…0001` | Coinbase address. **Required when `MINE=1`** (the entrypoint hard-fails without it). Devnet/Wheeler coins are valueless; use your own EOA to keep anything |
 | `MINER_THREADS` | `0` | `0` | Node CPU mining threads. `0` = serve `eth_getWork` only; the GPU miner does the hashing. `>0` also mines on CPU |
-| `NETWORKID` | auto from `GENESIS` | auto | 15537391 (devnet, also the fallback for absolute-path genesis — set explicitly if yours differs), 15537392 (Wheeler), 15537393 (mainnet/legacy devnet) |
+| `NETWORKID` | auto from `GENESIS` | auto | 15537391 (devnet, also the fallback for absolute-path genesis; set explicitly if yours differs), 15537392 (Wheeler), 15537393 (mainnet/legacy devnet) |
 | `BOOTNODE` | unset | unset | Set an `enode://…@host:30303` to join a public network (Wheeler). Unset = `--nodiscover` (private devnet) |
 | `HTTP_VHOSTS` | `node,localhost,127.0.0.1` | same | Allowed HTTP `Host` headers. The default covers the compose miner and host-localhost curls without reopening the DNS-rebinding hole a `*` wildcard would |
 | `DATADIR` | `/data` | `/data` | Node datadir (bind-mounted volume) |
 
-Wheeler mode (live testnet, chain ID 15537392 — bootnode from README).
+Wheeler mode (live testnet, chain ID 15537392; bootnode from README).
 **Wheeler runs KawPow since its v2 re-genesis (2026-08-13)**: the node
 image (post-`ci_prepare` parity) validates and serves KawPow work
-automatically — activation is keyed to the chain ID, no env var needed.
+automatically. Activation is keyed to the chain ID, no env var needed.
 Note the bundled **ethminer image is ethash-only and cannot mine
 Wheeler v2**: run the node with `MINE=1` + `MINER_THREADS=0` to serve
 work, and point a KawPow miner (kawpowminer, T-Rex) at a
@@ -210,16 +218,21 @@ compose `stratum` service.
 
 - **RPC is localhost-only on the host** (`127.0.0.1:8545:8545`). Inside the
   container it binds `0.0.0.0:8545` so the miner can reach it over the
-  private `everett-int` network — do not publish it beyond localhost.
+  private `everett-int` network; do not publish it beyond localhost.
 - The default `ETHERBASE` is a throwaway address. On Wheeler, use your own
   EOA if you want to keep anything; devnet coins are valueless by design.
 - `genesis.json` (mainnet, chain ID 15537393) is **reserved** for the
-  Article VIII launch ceremony. The entrypoint refuses to start it unless
-  `EVERETT_ART_VIII_CEREMONY=1` is set — that flag belongs to the ceremony,
-  not to experiments. The stack defaults to `genesis-dev.json` (chain ID
-  15537391). The legacy `genesis-devnet.json` also carries the reserved
-  15537393 — it ships only so stacks already running it keep working; new
-  devnets should not use it.
+  Article VIII launch ceremony. The entrypoint refuses to start any
+  genesis carrying that chain ID unless `EVERETT_ART_VIII_CEREMONY=1` is
+  set (the guard keys on the genesis content, not the filename); that
+  flag belongs to the ceremony, not to experiments. The stack defaults
+  to `genesis-dev.json` (chain ID 15537391). The legacy
+  `genesis-devnet.json` also carries the reserved
+  15537393 and ships for identification/compat only. Chain-keyed
+  activation forces KawPow ON for that chain ID, so legacy ethash devnet
+  datadirs are NOT usable with current images: wipe the volume and
+  re-init on `genesis-dev.json`, or stay on a pre-flip build. New
+  devnets should never use it.
 - No secrets: nothing in the repo or the images requires credentials.
 - Everything builds from source; a failed gate fails the build. There are
   no prebuilt binaries to trust.

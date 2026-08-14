@@ -15,7 +15,7 @@ not folklore.
 ## The asymmetry that decides everything
 
 ASERT corrects an error factor F in roughly `1800·ln(F)` seconds of
-*chain time* — and chain time only advances when blocks are found.
+*chain time*, and chain time only advances when blocks are found.
 
 - **Genesis too LOW**: blocks come fast, chain time races, correction is
   quick and cheap. A ×4,200 underestimate cleared in 75 minutes, live.
@@ -24,8 +24,8 @@ ASERT corrects an error factor F in roughly `1800·ln(F)` seconds of
   claws down at minutes-per-block pace. A ×100 overestimate could stall
   the chain for a day and hand the narrative to "dead on arrival."
 
-So the genesis difficulty question is not "guess arriving hashpower" —
-unknowable within orders of magnitude — but "what is the least
+So the genesis difficulty question is not "guess arriving hashpower"
+(unknowable within orders of magnitude) but "what is the least
 hashpower we are confident shows up, then err LOW from there."
 
 ## Recommendation
@@ -42,12 +42,12 @@ two 3080-class cards).**
   today): ~13 s blocks from block 1. On-target television.
 - Twenty cards (~850 MH/s): ~1.3 s blocks initially; ASERT reaches
   equilibrium in ≈ `1800·ln(10)` ≈ 70 minutes of fast blocks. Measured
-  behavior, not theory — Wheeler absorbed worse.
+  behavior, not theory: Wheeler absorbed worse.
 - A thousand cards: bursty first half hour, equilibrium inside two
   hours, slow-start (Art. III) keeps the issuance distortion of the
   burst phase negligible (~93k-block ramp dwarfs any 2-hour transient).
 - One lone card: ~26 s blocks, self-correcting downward within the
-  first hour. Slow but visibly alive — the failure mode is boredom, not
+  first hour. Slow but visibly alive; the failure mode is boredom, not
   death.
 
 The launch-day dashboard (tools/dashboard) should be published alongside

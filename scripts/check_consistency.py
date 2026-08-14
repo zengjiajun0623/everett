@@ -88,8 +88,11 @@ for n in sweep:
         fail.append(f"reward mismatch at block {n}: {a} != {b}")
     if a < 0:
         fail.append(f"negative reward at block {n}")
-    if n > 0 and a < TAIL * n // SLOW if n < SLOW else a < TAIL:
-        pass
+    # Tail floor: the schedule's reward never drops below the 0.2 tail
+    # (scaled proportionally inside the slow start).
+    floor = TAIL * n // SLOW if n < SLOW else TAIL
+    if n > 0 and a < floor:
+        fail.append(f"reward below tail floor at block {n}: {a} < {floor}")
 
 # monotonic decay after slow start, never below the tail
 prev = None

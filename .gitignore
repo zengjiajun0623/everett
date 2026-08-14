@@ -9,3 +9,5 @@ dist/*-node-*/
 stratum/stratum
 kawpow-stratum
 *.o
+__pycache__/
+*.pyc

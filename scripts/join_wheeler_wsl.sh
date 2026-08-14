@@ -31,12 +31,21 @@ else
 fi
 cd /root/everett
 COREGETH_COMMIT="${COREGETH_COMMIT:-10f1ea745cd89d72c398484a234cdc7fb29ecc32}"
-if [ ! -d build/core-geth ]; then
+# Every run converges the checkout on the pin: fetch the pinned SHA, hard
+# reset onto it, drop stray files. An existing tree is never trusted (a
+# stale HEAD would silently build the live node against the wrong
+# upstream), and re-runs are deterministic because the Everett patches
+# below are re-applied to a pristine tree each time.
+if [ ! -d build/core-geth/.git ]; then
+  rm -rf build/core-geth
   git init -q build/core-geth
   git -C build/core-geth remote add origin https://github.com/etclabscore/core-geth
-  git -C build/core-geth fetch -q --depth 1 origin "$COREGETH_COMMIT"
-  git -C build/core-geth checkout -q FETCH_HEAD
 fi
+git -C build/core-geth fetch -q --depth 1 origin "$COREGETH_COMMIT"
+git -C build/core-geth checkout -qf FETCH_HEAD
+git -C build/core-geth clean -qfd
+HAVE=$(git -C build/core-geth rev-parse HEAD)
+[ "$HAVE" = "$COREGETH_COMMIT" ] || { echo "FAIL: checkout is at $HAVE, pin is $COREGETH_COMMIT" >&2; exit 1; }
 cd build/core-geth
 if grep -q "blst v0.3.1[1-6]" go.mod; then go get github.com/supranational/blst@v0.3.17; fi
 sed -i -e '/fjl\/memsize\/memsizeui/d' -e '/var Memsize memsizeui.Handler/d' \
@@ -59,9 +68,25 @@ GETH=/root/everett/build/core-geth/build/bin/geth
 # chain. Wipe on mismatch, keeping the keystore (mining account survives).
 W2HASH=abd9bac321cc9176f1a540d8cab9bea6ce27a4621aeb6199642891141d5e8934
 if [ -d /root/wheeler-data/geth/chaindata ]; then
-  GOT=$($GETH --datadir /root/wheeler-data --port 30398 --nodiscover --maxpeers 0 console --exec 'eth.getBlock(0).hash' 2>/dev/null | grep -o '[0-9a-f]\{64\}' | head -1 || true)
+  # Probe the datadir's genesis. A FAILED probe is not a v1 datadir: it
+  # usually means the node is running and holds the datadir lock, and
+  # wiping a healthy live v2 datadir on a hidden lock error is exactly
+  # the disaster this used to cause. Only a SUCCESSFUL probe returning a
+  # different hash identifies v1.
+  PROBE_ERR=$(mktemp)
+  GOT=$($GETH --datadir /root/wheeler-data --port 30398 --nodiscover --maxpeers 0 console --exec 'eth.getBlock(0).hash' 2>"$PROBE_ERR" | grep -o '[0-9a-f]\{64\}' | head -1 || true)
+  if [ -z "$GOT" ]; then
+    echo "FAIL: could not read the genesis of /root/wheeler-data." >&2
+    echo "      If the node is running (WheelerNode scheduled task), stop it first:" >&2
+    echo "        schtasks /end /tn WheelerNode   (from Windows)" >&2
+    echo "      geth said:" >&2
+    tail -3 "$PROBE_ERR" >&2
+    rm -f "$PROBE_ERR"
+    exit 1
+  fi
+  rm -f "$PROBE_ERR"
   if [ "$GOT" != "$W2HASH" ]; then
-    echo "wheeler v1 datadir detected (genesis ${GOT:-unreadable}); re-initing for v2"
+    echo "wheeler v1 datadir detected (genesis $GOT); re-initing for v2"
     rm -rf /root/wheeler-data/geth
   fi
 fi

@@ -69,7 +69,8 @@ genesis block. It exists because of a single lesson, learned twice:
    validity rules) additionally issues `floor(R/32)` to each uncle's miner
    and `floor(R/32)` per uncle to the block's own miner, where `R` is that
    block's `R(block)`. Total issuance for a block is therefore
-   `R * (1 + k/16)`. No issuance beyond clauses 1 through 5 exists.
+   `R + 2k * floor(R/32)`, at most `R * (1 + k/16)`. No issuance beyond
+   clauses 1 through 5 exists.
 6. These parameters, clauses 1 through 5, are unamendable under Article VII.
 7. Pre-merge Ethereum kept issuance amendable and used that power well,
    cutting miner pay twice. That flexibility was safe only because miners

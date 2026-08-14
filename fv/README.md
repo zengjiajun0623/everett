@@ -18,7 +18,7 @@ far below 2^256, so wrapping is unreachable. Proven, no sorries:
 | `decay_mono`, `decay_strict_anti`, `decay_zero_stable` | decay is non-increasing, strictly decreasing while positive, and 0 is absorbing |
 | `decay_le_geometric` | 1000ⁿ·D(n) ≤ 993ⁿ·d0 |
 | `decaySum_bounded` | 7·ΣD + 1000·D(next) ≤ 1000·d0, so the per-era sum stays below d0·1000/7 ≈ 257.14 ETT |
-| `issued_invariant` / `issued_le` / **`supply_bound`** | the per-block summation link: base-reward issuance through ANY height B is ≤ 0.2·B + eraLen·d0·1000/7 wei. **Decay component < 25,714,285.72 ETT of base rewards, forever, machine-checked end to end** |
+| `issued_invariant` / `issued_le` / **`supply_bound`** | the per-block summation link: base-reward issuance through ANY height B is ≤ tail·B + eraLen·d0·1000/7 wei, i.e. 0.2 ETT per block plus a fixed decay component. **Decay component < 25,714,285.72 ETT of base rewards, forever, machine-checked end to end** |
 | `decay_dies`, `decay_zero_forever`, `reward_terminal` | decay is exactly 0 from era 5360; from block 536,000,000 every reward is exactly the 0.2 tail. The terminal monetary state is a dated fact, not an asymptote |
 | `reward_mono_after_slowstart` | after the launch window, rewards never rise |
 | `uncle_multiplier` | with the 2-uncle cap, a block mints ≤ 9/8 of its base reward, so full-chain issuance is bounded by 9/8 of every figure above (decay component < 28.93M ETT; the per-block fact is the theorem, the chain-level 9/8 scaling is arithmetic on top of `supply_bound`) |
@@ -26,8 +26,8 @@ far below 2^256, so wrapping is unreachable. Proven, no sorries:
 | `reward_slowstart_le` | slow start only ever reduces |
 | `reward_eventually_tail` | once decay dies, R = 0.2 ETT exactly, forever |
 
-Eight `native_decide` anchors (incl. the era-boundary blocks 92999 and
-99999) pin the Lean model to the same value set the Go
+Eight `native_decide` anchors (incl. the slow-start boundary 92999 and
+the era boundary 99999) pin the Lean model to the same value set the Go
 (`rewards_everett_test.go`) and Python (`scripts/verify_rewards.py` /
 `burn_audit.py`) implementations compute; the anchor set overlaps the Go
 vectors and extends them at the boundaries the Go suite skips. Three

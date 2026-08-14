@@ -13,9 +13,12 @@ The supply figure is not an estimate: scripts/burn_audit.py (the exact,
 uncle- and burn-aware Article III/IV recomputation) runs every 5 minutes
 and its verdict is shown as-is.
 """
+import atexit
 import json
 import os
+import signal
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -25,6 +28,7 @@ RPC = os.environ.get("RPC", "http://127.0.0.1:8545")
 PORT = int(os.environ.get("PORT", "8484"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIT = os.path.join(HERE, "..", "..", "scripts", "burn_audit.py")
+AUDIT_CMD = ["python3", AUDIT]   # exact spawn cmdline; also the stale-kill match
 WINDOW = 300          # blocks kept for charts
 AUDIT_EVERY = 300     # seconds between exact supply audits
 
@@ -122,14 +126,86 @@ def follow_head():
         time.sleep(3)
 
 
+_audit_proc = None            # live burn_audit Popen, guarded by _audit_lock
+_audit_lock = threading.Lock()
+
+
+def kill_stale_audits():
+    """Reap burn_audit children orphaned by a previous dashboard instance.
+
+    If the dashboard crashes (e.g. port 8484 already bound) the spawned
+    full-chain replay is orphaned and keeps hammering the node RPC while
+    launchd relaunches us. Match the full cmdline of our own invocation
+    pattern so manual `python3 scripts/burn_audit.py` runs from the repo
+    root (a different cmdline) are left alone.
+    """
+    pattern = " ".join(AUDIT_CMD)
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,command="],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return
+    for line in out.splitlines():
+        pid_s, _, cmd = line.strip().partition(" ")
+        if cmd.strip() != pattern or not pid_s.isdigit():
+            continue
+        pid = int(pid_s)
+        try:
+            # new-style children lead their own group; kill the whole group
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            try:  # orphans from older dashboards are not group leaders
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                continue
+        print(f"killed stale burn_audit pid {pid}")
+
+
+def _kill_audit_group():
+    """Kill the live audit's process group; runs at exit and on SIGTERM."""
+    with _audit_lock:
+        proc = _audit_proc
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _on_sigterm(signum, frame):
+    _kill_audit_group()
+    sys.exit(0)   # SystemExit also runs the atexit handler
+
+
 def run_audit():
+    global _audit_proc
     while True:
         try:
-            out = subprocess.run(
-                ["python3", AUDIT], env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": "15537392"},
-                capture_output=True, text=True, timeout=600)
-            lines = out.stdout.strip().splitlines() or [
-                "no stdout; stderr tail:"] + out.stderr.strip().splitlines()[-4:]
+            # start_new_session gives the audit its own process group, so
+            # shutdown (atexit/SIGTERM) can kill the group and a dashboard
+            # crash never leaves N concurrent full-chain replays behind;
+            # kill_stale_audits() at startup mops up anything that did.
+            proc = subprocess.Popen(
+                AUDIT_CMD, env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": "15537392"},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                start_new_session=True)
+            with _audit_lock:
+                _audit_proc = proc
+            try:
+                stdout, stderr = proc.communicate(timeout=600)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                proc.communicate()
+                raise
+            finally:
+                with _audit_lock:
+                    _audit_proc = None
+            lines = stdout.strip().splitlines() or [
+                "no stdout; stderr tail:"] + stderr.strip().splitlines()[-4:]
             tail = lines[-6:]
             verdict = "PASS" if any("PASS" in l for l in lines) else "FAIL"
             stats = next((l for l in lines if l.startswith("blocks=")), "")
@@ -215,7 +291,14 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    kill_stale_audits()
+    atexit.register(_kill_audit_group)
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    # Bind before starting the workers: if the port is already taken we
+    # exit here, before spawning an audit, instead of crash-looping fresh
+    # full-chain replays against the node every ThrottleInterval.
+    httpd = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     threading.Thread(target=follow_head, daemon=True).start()
     threading.Thread(target=run_audit, daemon=True).start()
     print(f"everett dashboard on http://0.0.0.0:{PORT} (node {RPC})")
-    ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
+    httpd.serve_forever()

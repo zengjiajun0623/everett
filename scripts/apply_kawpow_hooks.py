@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Idempotently hook KawPow into core-geth's consensus, sealer, and work API.
 
-Five hooks. 1-4 branch on kawpowEnabled and fall through to stock ethash;
+Six hooks. 1-4 branch on kawpowEnabled and fall through to stock ethash;
 hook 5 SETS kawpowEnabled from the loaded chain config (chain-keyed
 activation — consensus must never depend on local environment):
   1. verifySeal - light KawPow verification (miners own the DAG)
@@ -107,11 +107,15 @@ HOOKS = [
 """),
 ]
 
+# All four files are mandatory: every hook is consensus-critical under
+# chain-keyed activation. Silently skipping one (the old env-var-era
+# behavior) produced a binary that LOOKS patched but forks from the
+# network on the unpatched path.
+if len(sys.argv) != 5:
+    sys.exit("usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> <backend.go> <flags.go> "
+             f"(exactly 4 paths, got {len(sys.argv) - 1})")
 paths = list(sys.argv[1:5])
 for idx, marker, anchor, repl in HOOKS:
-    if idx >= len(paths):
-        print(f"hook {marker[:26]!r}: SKIPPED (no backend.go argument — env-var activation only)")
-        continue
     src = open(paths[idx]).read()
     if marker in src:
         print(f"hook {marker[:26]!r}: already present")

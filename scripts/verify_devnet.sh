@@ -17,7 +17,13 @@ echo "$GOT"
 [ "$((GOT))" = "$EXPECT_CHAINID" ] || { echo "FAIL: chainId $((GOT)) != expected $EXPECT_CHAINID (wrong node? set RPC= / EXPECT_CHAINID=)"; exit 1; }
 
 echo "== genesis: London active (baseFeePerGas present), no withdrawalsRoot =="
-call '{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["0x0",false]}'; echo
+call '{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["0x0",false]}' | python3 -c '
+import json, sys
+b = json.load(sys.stdin)["result"]
+assert b and b.get("baseFeePerGas") is not None, "FAIL: no baseFeePerGas at genesis (London/1559 inactive: Art IV burn impossible)"
+assert "withdrawalsRoot" not in b or b["withdrawalsRoot"] is None, "FAIL: withdrawalsRoot present at genesis (a PoS field on a PoW chain)"
+print(f"OK: baseFeePerGas={b[\"baseFeePerGas\"]}, no withdrawalsRoot")
+'
 
 echo "== supply audit (exact, independent recomputation; uncle- and tx-aware) =="
 python3 "$(cd "$(dirname "$0")" && pwd)/burn_audit.py"

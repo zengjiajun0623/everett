@@ -1,20 +1,43 @@
-# Integrating the Lifeboat reward schedule into core-geth
+# Integrating the Everett consensus delta into core-geth
 
-1. Copy `rewards_lifeboat.go` and `rewards_lifeboat_test.go` into
-   `params/mutations/` of a core-geth checkout.
-2. Hook the router: in `params/mutations/rewards.go`, at the top of
-   `GetRewards`, before the ECIP-1017 check, insert:
+The canonical, tested recipe is `scripts/ci_prepare.sh`. Run it and you
+get a patched core-geth tree at `build/core-geth`, ready for `make geth`
+(override the location with `COREGETH_DIR=...`; gates on an operator
+host use `build/ci/core-geth` so they never touch the tree a live node
+execs from). It does four things:
 
-```go
-	if id := config.GetChainID(); id != nil && id.Uint64() == lifeboatChainID {
-		return lifeboatRewards(header, uncles)
-	}
+1. Fetches core-geth pinned to `COREGETH_COMMIT` (`10f1ea74…`, the tree
+   every Everett gate was verified against). An existing checkout must
+   match the pin or the script fails loudly.
+2. Applies the modern-Go compat fixes (blst v0.3.17 bump, memsize
+   excision).
+3. Copies the `client/` source files into place: `rewards_everett.go`
+   (+ test) into `params/mutations/`; `difficulty_everett.go` (+ tests,
+   incl. `asert_enum_test.go`) and `kawpow_core.go` (+ test) into
+   `consensus/ethash/`.
+4. Runs the three hook appliers, then copies `kawpow_engine.go` into
+   `consensus/ethash/` (the engine lands after the hooks, deliberately):
+   `scripts/apply_hook.py` inserts the chain-ID-keyed reward router at
+   the top of `GetRewards` in `params/mutations/rewards.go`
+   (`isEverettFamily` → `everettRewards`, the hook `rewards_everett.go`
+   refers to); `scripts/apply_daa_hook.py` wires ASERT into
+   `consensus/ethash/consensus.go`; and `scripts/apply_kawpow_hooks.py`
+   patches four files (`consensus/ethash/consensus.go`,
+   `consensus/ethash/sealer.go`, `eth/backend.go`, `cmd/utils/flags.go`)
+   for KawPow verification, sealing, and chain-keyed activation. All
+   appliers are idempotent and anchored on upstream function signatures;
+   a missing anchor fails loudly.
+
+Verify the prepared tree with the standard gates (CI runs exactly these):
+
+```bash
+cd build/core-geth
+go test ./params/mutations/ -run TestEverett -v
+go test ./consensus/ethash/ -run TestASERT -v
+go test ./consensus/ethash/ -run TestKawPow -v -timeout 40m
 ```
 
-   (`scripts/apply_hook.py` does this idempotently.)
-3. `go test ./params/mutations/ -run TestLifeboat -v` — all five must pass.
-4. `make geth`, then `scripts/boot_devnet.sh` and `scripts/verify_devnet.sh`.
-
-Design notes: chain-ID gating is the v0.1 shortcut; the proper core-geth way
-is a ctypes ChainConfigurator feature flag, deferred until a real fork of the
-repo exists. The uncle scheme reuses `big32` from rewards.go (same package).
+`scripts/boot_devnet.sh` wraps prep, gates, build, and a mining devnet in
+one command. `docker/node.Dockerfile` replicates the same recipe (same
+pin, same copies, same hooks, same gates) for image builds. Do not fork
+the prep; if a variant is needed, extend `ci_prepare.sh`.

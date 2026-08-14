@@ -23,11 +23,11 @@ import (
 )
 
 const (
-	kawpowEpochLength   = 7500
-	kawpowCacheInit     = 1 << 24 // 16 MiB
-	kawpowCacheGrowth   = 1 << 17 // 128 KiB / epoch
-	kawpowDatasetInit   = 1 << 30 // 1 GiB
-	kawpowDatasetGrowth = 1 << 23 // 8 MiB / epoch
+	kawpowEpochLength    = 7500
+	kawpowCacheInit      = 1 << 24 // 16 MiB
+	kawpowCacheGrowth    = 1 << 17 // 128 KiB / epoch
+	kawpowDatasetInit    = 1 << 30 // 1 GiB
+	kawpowDatasetGrowth  = 1 << 23 // 8 MiB / epoch
 	kawpowDatasetParents = 512
 
 	kawpowCacheBytes = 16 * 1024
@@ -66,7 +66,6 @@ func kawpowDatasetSize(epoch uint64) uint64 {
 	}
 	return size
 }
-
 
 // kawpowSeedHash: keccak256 iterated `epoch` times over 32 zero bytes.
 // core-geth's seedHash() re-derives the epoch from a block using the
@@ -265,13 +264,21 @@ func kawpowMath(a, b, r uint32) uint32 {
 }
 
 func kawpowLoop(seed uint64, loop uint32, mix *[kawpowLanes][kawpowRegs]uint32,
-	lookup func(index uint32) []byte, cDag []uint32, datasetItems uint32) {
-	gOffset := mix[loop%kawpowLanes][0] % (64 * datasetItems / (kawpowLanes * kawpowDagLoads))
+	lookup func(index uint64) []byte, cDag []uint32, datasetItems uint32) {
+	// Modulus over 256-byte DAG items, matching cpp-kawpow's
+	// num_items = full_dataset_num_items / 2 exactly. The spec-shaped form
+	// 64*items/(lanes*dagLoads) is algebraically identical but its uint32
+	// product wraps once the DAG passes 16 GiB (epoch 1921), which would
+	// split the node from every stock GPU miner. cpp-kawpow is normative.
+	// The word-unit fetch indices below cross uint32 at the same DAG size,
+	// so the lookup index is 64-bit end to end.
+	gOffset := mix[loop%kawpowLanes][0] % datasetItems
+	base := uint64(gOffset) * kawpowLanes * kawpowDagLoads
 	dagItem := make([]byte, 256)
-	copy(dagItem, lookup((gOffset*kawpowLanes)*kawpowDagLoads))
-	copy(dagItem[64:], lookup((gOffset*kawpowLanes)*kawpowDagLoads+16))
-	copy(dagItem[128:], lookup((gOffset*kawpowLanes)*kawpowDagLoads+32))
-	copy(dagItem[192:], lookup((gOffset*kawpowLanes)*kawpowDagLoads+48))
+	copy(dagItem, lookup(base))
+	copy(dagItem[64:], lookup(base+16))
+	copy(dagItem[128:], lookup(base+32))
+	copy(dagItem[192:], lookup(base+48))
 
 	for l := uint32(0); l < kawpowLanes; l++ {
 		rs, dst, src := kawpowInit(seed)
@@ -312,7 +319,7 @@ func kawpowLoop(seed uint64, loop uint32, mix *[kawpowLanes][kawpowRegs]uint32,
 
 // kawpowHash computes (mixHash, finalHash) per the Ravencoin KawPow flow.
 func kawpowHash(hash []byte, nonce uint64, size uint64, blockNumber uint64,
-	cDag []uint32, lookup func(index uint32) []byte) ([]byte, []byte) {
+	cDag []uint32, lookup func(index uint64) []byte) ([]byte, []byte) {
 	// Initial keccak-f800: header(8) + nonce(2) + RAVENCOINKAWPOW(15).
 	var ist [25]uint32
 	for i := 0; i < 8; i++ {
@@ -377,8 +384,10 @@ func kawpowHash(hash []byte, nonce uint64, size uint64, blockNumber uint64,
 // kawpowLight computes KawPow from a light cache + cDag (verification path).
 func kawpowLight(size uint64, cache []uint32, hash []byte, nonce uint64, blockNumber uint64, cDag []uint32) ([]byte, []byte) {
 	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
-	lookup := func(index uint32) []byte {
-		return kawpowGenerateDatasetItem(cache, index/16, keccak512)
+	lookup := func(index uint64) []byte {
+		// 64-byte item index; exact in uint32 until a 256 GiB DAG, the same
+		// bound cpp-kawpow's uint32 item indexing has.
+		return kawpowGenerateDatasetItem(cache, uint32(index/16), keccak512)
 	}
 	return kawpowHash(hash, nonce, size, blockNumber, cDag, lookup)
 }

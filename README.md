@@ -56,6 +56,14 @@ pointed at the bundled stratum service
 permission required; that is the point. Wheeler coins are valueless
 test material.
 
+**WARNING: a stock geth or core-geth build cannot follow this chain.**
+The genesis deliberately carries no custom fields, so an unpatched node
+handshakes with Wheeler peers just fine, but it can never verify a
+KawPow seal: it syncs zero blocks and silently drops. Run the patched
+build, via the Docker stack below or a source build through
+`scripts/ci_prepare.sh`. (A stock core-geth node did exactly this
+against our bootnode: perfect handshake, zero blocks, gone.)
+
 ## Run it yourself
 
 Prerequisites: macOS or Linux with `git`, Go 1.22+ (`brew install go`), and
@@ -91,8 +99,9 @@ image) plus an external ethminer over RPC. Portainer-ready; no prebuilt
 binaries, no secrets.
 
 ```bash
-docker build -f docker/node.Dockerfile  -t everett-node:local .
-docker build -f docker/miner.Dockerfile -t everett-miner:local .
+docker build -f docker/node.Dockerfile    -t everett-node:local .
+docker build -f docker/stratum.Dockerfile -t everett-stratum:local .
+docker build -f docker/miner.Dockerfile   -t everett-miner:local .
 docker compose -f docker/docker-compose.yml up -d --build
 curl -s -X POST -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \

@@ -41,6 +41,22 @@ jobs:
       - name: Article III parameters agree across constitution, spec, and code
         run: python3 scripts/check_consistency.py
 
+  stratum-gates:
+    name: stratum sidecar (vet + race tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Vet
+        working-directory: stratum
+        run: go vet ./...
+      - name: Unit tests under the race detector
+        working-directory: stratum
+        run: go test -race ./...
+
   devnet-e2e:
     name: devnet end-to-end (mine + audit)
     runs-on: ubuntu-latest
@@ -50,9 +66,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Prepare patched core-geth
-        run: scripts/ci_prepare.sh
+      - name: Cache gate build tree
+        uses: actions/cache@v4
+        with:
+          path: build/ci/core-geth
+          key: ci-core-geth-${{ hashFiles('scripts/ci_prepare.sh', 'scripts/apply_hook.py', 'scripts/apply_daa_hook.py', 'scripts/apply_kawpow_hooks.py') }}
       - name: Boot devnet, mine, audit supply wei-exact
+        # ci_devnet.sh preps its own isolated tree (COREGETH_DIR=build/ci/core-geth)
+        # so a gate can never touch the tree a live operator node execs from.
         run: scripts/ci_devnet.sh
 
   formal-verification:

@@ -51,6 +51,7 @@ if _expect:
 
 head = int(rpc("eth_blockNumber", []), 16)
 bal = defaultdict(int)
+inexact = set()  # contract accounts whose value may have moved internally
 burned = 0
 txs = 0
 uncles_seen = 0
@@ -71,22 +72,45 @@ for n in range(1, head + 1):
         rec = rpc("eth_getTransactionReceipt", [tx["hash"]])
         gas = int(rec["gasUsed"], 16)
         egp = int(rec["effectiveGasPrice"], 16)
+        # A REVERTED tx (status 0) burns and tips exactly like a
+        # successful one, but its value transfer never happens. Modeling
+        # the transfer anyway made one reverted tx fail the audit forever.
+        okstatus = int(rec.get("status") or "0x1", 16) == 1
         sender = tx["from"].lower()
-        val = int(tx["value"], 16)
+        val = int(tx["value"], 16) if okstatus else 0
         bal[miner] += (egp - base) * gas          # tip
         burned += base * gas                       # Article IV
         bal[sender] -= val + egp * gas
         if tx["to"]:
-            bal[tx["to"].lower()] += val
+            to = tx["to"].lower()
+            bal[to] += val
+            # Value sent INTO code can flow onward internally, which
+            # basic RPC cannot see; exactness for that account is gone.
+            if val and rpc("eth_getCode", [to, "latest"]) not in ("0x", None):
+                inexact.add(to)
+        elif okstatus and rec.get("contractAddress"):
+            # Contract creation: the endowment lands on the new address.
+            ca = rec["contractAddress"].lower()
+            bal[ca] += val
+            inexact.add(ca)
         txs += 1
 
 ok = True
 for acct, expected in sorted(bal.items()):
     actual = int(rpc("eth_getBalance", [acct, hex(head)]), 16)
+    if acct in inexact:
+        # Internal (contract-mediated) flows are invisible to basic RPC:
+        # exactness is only claimable for accounts no contract touched.
+        # A tracing node (debug_traceTransaction) is the upgrade path.
+        print(f"SKIP {acct} actual={actual} (contract-touched; internal flows not modeled)")
+        continue
     status = "OK " if actual == expected else "FAIL"
     if actual != expected:
         ok = False
-    print(f"{status} {acct} modeled={expected} actual={actual} delta={actual-expected}")
+        print(f"{status} {acct} modeled={expected} actual={actual} delta={actual-expected}"
+              " (if a contract paid this account, the basic-RPC model cannot see it)")
+    else:
+        print(f"{status} {acct} modeled={expected} actual={actual} delta={actual-expected}")
 
 print(f"blocks={head} txs={txs} uncles={uncles_seen} burned={burned} wei")
 if not ok:

@@ -78,8 +78,8 @@
 </div>
 
 <div class="grid row">
-  <div class="panel"><h2 id="h-diff">Difficulty — last — blocks</h2><div id="c-diff"></div></div>
-  <div class="panel"><h2 id="h-bt">Block intervals — last 60</h2><div id="c-bt"></div></div>
+  <div class="panel"><h2 id="h-diff">Difficulty · last — blocks</h2><div id="c-diff"></div></div>
+  <div class="panel"><h2 id="h-bt">Block intervals · last 60</h2><div id="c-bt"></div></div>
 </div>
 
 <div class="grid row2">
@@ -99,6 +99,11 @@
 
 <script>
 const $ = id => document.getElementById(id);
+// Escape any RPC-derived string before it reaches an innerHTML sink.
+// Peer clientIds, remote addresses, and miner/etherbase strings are all
+// controlled by remote peers or miners; never interpolate them raw.
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const CAT = { "0xf3f527b70af6012f328d3ede7fcd3f5f3ca6cba2": ["var(--cat-a)", "jiajun"],
               "0x1000000000000000000000000000000000000001": ["var(--cat-b)", "justin·docker"],
               "0x3f37629109202c791814f972f689f23696d32a95": ["var(--cat-c)", "burn-test (ours)"] };
@@ -219,9 +224,9 @@ async function refresh() {
   $("audit").textContent = (au.detail || "") + (au.at ? "\n\nlast run: " + ago(st.now - au.at) : "");
 
   const s = st.series || [];
-  $("h-diff").textContent = `Difficulty — last ${s.length} blocks`;
+  $("h-diff").textContent = `Difficulty · last ${s.length} blocks`;
   lineChart($("c-diff"), s.map(b => ({ x: b.n, y: b.d,
-      label: `<b class="num">#${b.n}</b><br>difficulty ${fmt(b.d)}<br>${minerInfo(b.m)[1]}` })),
+      label: `<b class="num">#${b.n}</b><br>difficulty ${fmt(b.d)}<br>${esc(minerInfo(b.m)[1])}` })),
     { x0: "#" + s[0].n, x1: "#" + s[s.length-1].n, aria: "Difficulty over recent blocks" });
   const iv = [];
   for (let i = Math.max(1, s.length - 60); i < s.length; i++)
@@ -232,21 +237,21 @@ async function refresh() {
   $("miners").innerHTML = "<table><thead><tr><th>Miner</th><th>Blocks</th><th style='width:40%'>Share</th></tr></thead><tbody>" +
     (st.miners || []).map(([m, c]) => {
       const [col, name] = minerInfo(m);
-      return `<tr><td><span class="chip" style="background:${col}"></span>${name}</td>
+      return `<tr><td><span class="chip" style="background:${col}"></span>${esc(name)}</td>
         <td class="num">${c}</td>
         <td><div class="bar"><i style="width:${(100*c/total).toFixed(1)}%;background:${col}"></i></div></td></tr>`;
     }).join("") + "</tbody></table>";
 
   $("peers").innerHTML = st.peers.length
     ? st.peers.map(p => `<div style="padding:3px 0;border-top:1px solid var(--line)">
-        <span class="num">${p.addr}</span> <span style="color:var(--ink3)">${p.inbound ? "in" : "out"} · ${p.name.split("/").slice(0,2).join("/")}</span></div>`).join("")
+        <span class="num">${esc(p.addr)}</span> <span style="color:var(--ink3)">${p.inbound ? "in" : "out"} · ${esc(p.name.split("/").slice(0,2).join("/"))}</span></div>`).join("")
     : "<span style='color:var(--ink3)'>no peers connected</span>";
 
   $("feed").querySelector("tbody").innerHTML = s.slice(-14).reverse().map(b => {
     const [col, name] = minerInfo(b.m);
     const o = origin(b.no);
     return `<tr><td class="num">${b.n}</td><td class="num">${ago(Math.max(0, st.now - b.t))}</td>
-      <td><span class="chip" style="background:${col}"></span>${name}<span style="color:var(--ink3)"> · ${o}</span></td>
+      <td><span class="chip" style="background:${col}"></span>${esc(name)}<span style="color:var(--ink3)"> · ${o}</span></td>
       <td class="num">${fmt(b.d)}</td><td class="num">${b.u || ""}</td></tr>`;
   }).join("");
   const cpuBlocks = s.filter(b => origin(b.no) === "cpu").length;

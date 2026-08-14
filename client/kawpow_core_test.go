@@ -84,7 +84,8 @@ func be(t *testing.T, s string) []byte {
 	return b
 }
 
-// Layer 2: the smoke vector (run first), then all 13 primary vectors.
+// Layer 2: the smoke vector (run first), then six primary vectors spanning
+// epochs 0-22 (blocks 0..170915) from the cpp-kawpow test set.
 func TestKawPowSmoke(t *testing.T) {
 	cache, cDag := epoch0()
 	// block 30000 is epoch 4, but the smoke vector in cpp-kawpow is checked
@@ -111,10 +112,10 @@ func TestKawPowSmoke(t *testing.T) {
 
 func TestKawPowVectors(t *testing.T) {
 	type vec struct {
-		block       uint64
-		header      string
-		nonce       uint64
-		mix, final  string
+		block      uint64
+		header     string
+		nonce      uint64
+		mix, final string
 	}
 	vs := []vec{
 		{0, "0000000000000000000000000000000000000000000000000000000000000000", 0x0000000000000000, "6e97b47b134fda0c7888802988e1a373affeb28bcd813b6e9a0fc669c935d03a", "e601a7257a70dc48fccc97a7330d704d776047623b92883d77111fb36870f3d1"},
@@ -144,6 +145,47 @@ func TestKawPowVectors(t *testing.T) {
 }
 
 var _ = sha3.NewLegacyKeccak512
+
+// TestKawPowLoopModulusPostWrap pins the DAG-offset arithmetic at dataset
+// sizes past 16 GiB (epoch >= 1921, ~5.9 years in). Two uint32 traps lived
+// here: the spec-shaped modulus 64*items/(lanes*dagLoads) wraps (collapsing
+// the offset range ~2000x, and dividing by zero at items = 2^26 exactly),
+// and the word-unit fetch index gOffset*64 wraps at the same DAG size.
+// cpp-kawpow (what every stock GPU miner runs) computes the modulus over
+// 256-byte items directly and never wraps below a 1 TiB DAG; this test
+// locks our loop to those semantics with a synthetic lookup, no real DAG.
+func TestKawPowLoopModulusPostWrap(t *testing.T) {
+	seed := uint64(0x0102030405060708)
+	cDag := make([]uint32, kawpowCacheWords)
+	record := func(got *[]uint64) func(uint64) []byte {
+		return func(index uint64) []byte {
+			*got = append(*got, index)
+			return make([]byte, 64)
+		}
+	}
+
+	// items just past 2^26: mix lane selects offset items-1, so the first
+	// fetch must land at word (items-1)*64, beyond uint32.
+	items := uint32(1)<<26 + 12345
+	var mix [kawpowLanes][kawpowRegs]uint32
+	mix[0][0] = items - 1
+	var got []uint64
+	kawpowLoop(seed, 0, &mix, record(&got), cDag, items)
+	want := uint64(items-1) * kawpowLanes * kawpowDagLoads
+	if len(got) == 0 || got[0] != want {
+		t.Fatalf("first DAG fetch = %v, want %d (cpp-kawpow item semantics)", got[:min(len(got), 1)], want)
+	}
+
+	// items = 2^26 exactly: the old expression's modulus was zero here
+	// (division-by-zero panic on every hash at epoch 1921's first block).
+	mix = [kawpowLanes][kawpowRegs]uint32{}
+	mix[0][0] = 7
+	got = nil
+	kawpowLoop(seed, 0, &mix, record(&got), cDag, uint32(1)<<26)
+	if len(got) == 0 || got[0] != 7*kawpowLanes*kawpowDagLoads {
+		t.Fatalf("at items=2^26 first fetch = %v, want %d", got[:min(len(got), 1)], 7*kawpowLanes*kawpowDagLoads)
+	}
+}
 
 // TestKawPowActivation: chain-keyed activation (GENESIS_SPEC 5a.5 v2).
 // Wheeler and mainnet are KawPow from genesis; the dev chain keeps the

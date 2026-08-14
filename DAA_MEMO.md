@@ -76,14 +76,14 @@ uncle-rate feedback average ~13 s. Does not affect the comparison.)
    weights over last 45 solvetimes, clamped to [1, 6T]), min difficulty
    131072 retained.
 2. Tighten the future-timestamp allowance (geth default +15 s is acceptable;
-   do NOT loosen) and clamp negative solvetimes — LWMA is more sensitive to
+   do NOT loosen) and clamp negative solvetimes. LWMA is more sensitive to
    timestamp games than Byzantium; the clamp plus FTL is the standard
    mitigation on LWMA chains.
 3. Keep `daa_sim.py` as the regression harness; any future DAA tuning must
    rerun the four scenarios and not regress C (exodus) below the current
    LWMA numbers.
 4. Optional realism pass: RTX 3080 via getwork against a devnet running each
-   DAA — validates the sim's A/B curves with real Poisson noise. Blocked on
+   DAA, validating the sim's A/B curves with real Poisson noise. Blocked on
    Ampere-era miner software speaking getwork (classic ethminer predates
    sm_86; modern miners want stratum), so this needs a stratum proxy and is
    deferred; the sim is the decision basis.
@@ -91,5 +91,5 @@ uncle-rate feedback average ~13 s. Does not affect the comparison.)
 ## Consequence for the uncle argument
 
 Fast blocks during floods (Byzantium's failure mode in A) inflate uncle
-rates, which under Article III pay real rewards — so the slow DAA is not
+rates, which under Article III pay real rewards, so the slow DAA is not
 just an inconvenience, it is an issuance leak under attack. LWMA closes it.

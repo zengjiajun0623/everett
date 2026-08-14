@@ -6,27 +6,45 @@ EVERETT=$(cd "$(dirname "$0")/.." && pwd)
 WORK="$EVERETT/build"
 mkdir -p "$WORK"
 
+# Where to materialize the patched tree. Default is the production location
+# (the launchd wheeler-node plist execs build/core-geth/build/bin/geth), so
+# GATES MUST NOT USE THE DEFAULT on an operator host: ci_devnet.sh passes
+# COREGETH_DIR=build/ci/core-geth so a verification run can never rebuild or
+# delete the binary the live node relaunches from.
+COREGETH_DIR="${COREGETH_DIR:-$WORK/core-geth}"
+mkdir -p "$(dirname "$COREGETH_DIR")"
+
 # Pinned to the commit every Everett gate has been verified against
 # (same pin as docker/node.Dockerfile ARG COREGETH_COMMIT; the
 # consistency gate asserts the two never diverge). Override with
 # COREGETH_COMMIT=... to track a newer upstream deliberately.
 COREGETH_COMMIT="${COREGETH_COMMIT:-10f1ea745cd89d72c398484a234cdc7fb29ecc32}"
-if [ ! -d "$WORK/core-geth" ]; then
-  git init "$WORK/core-geth"
-  git -C "$WORK/core-geth" remote add origin https://github.com/etclabscore/core-geth
-  git -C "$WORK/core-geth" fetch --depth 1 origin "$COREGETH_COMMIT"
-  git -C "$WORK/core-geth" checkout FETCH_HEAD
+fetch_pin() {
+  git init "$COREGETH_DIR"
+  git -C "$COREGETH_DIR" remote add origin https://github.com/etclabscore/core-geth 2>/dev/null || true
+  git -C "$COREGETH_DIR" fetch --depth 1 origin "$COREGETH_COMMIT"
+  git -C "$COREGETH_DIR" checkout FETCH_HEAD
+}
+if [ ! -d "$COREGETH_DIR" ]; then
+  fetch_pin
+elif ! HAVE=$(git -C "$COREGETH_DIR" rev-parse HEAD 2>/dev/null); then
+  # Directory exists but has no valid HEAD: debris from an interrupted
+  # first fetch. Self-heal instead of surfacing a raw git fatal.
+  echo "WARN: $COREGETH_DIR has no valid HEAD (interrupted fetch?); refetching pin" >&2
+  rm -rf "$COREGETH_DIR"
+  fetch_pin
 else
   # An existing checkout must BE the pin, not merely exist: a stale tree
   # would silently run every gate against the wrong upstream.
-  HAVE=$(git -C "$WORK/core-geth" rev-parse HEAD)
   [ "$HAVE" = "$COREGETH_COMMIT" ] || {
-    echo "FAIL: build/core-geth is at $HAVE, pin is $COREGETH_COMMIT" >&2
-    echo "      rm -rf build/core-geth to refetch, or set COREGETH_COMMIT to match" >&2
+    echo "FAIL: $COREGETH_DIR is at $HAVE, pin is $COREGETH_COMMIT" >&2
+    echo "      rm -rf $COREGETH_DIR to refetch, or set COREGETH_COMMIT to match." >&2
+    echo "      CAUTION: on an operator host build/core-geth is the tree the live" >&2
+    echo "      launchd node execs from; use COREGETH_DIR=build/ci/core-geth for gates." >&2
     exit 1
   }
 fi
-cd "$WORK/core-geth"
+cd "$COREGETH_DIR"
 
 # Modern-Go compat (idempotent): blst bump, memsize excision.
 if grep -q "blst v0.3.1[1-6]" go.mod; then
@@ -41,6 +59,6 @@ cp "$EVERETT/client/difficulty_everett.go" "$EVERETT/client/difficulty_everett_t
 cp "$EVERETT/client/kawpow_core.go" "$EVERETT/client/kawpow_core_test.go" consensus/ethash/
 python3 "$EVERETT/scripts/apply_hook.py" params/mutations/rewards.go
 python3 "$EVERETT/scripts/apply_daa_hook.py" consensus/ethash/consensus.go
-echo "core-geth prepared with Everett patches"
 python3 "$EVERETT/scripts/apply_kawpow_hooks.py" consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go cmd/utils/flags.go
 cp "$EVERETT/client/kawpow_engine.go" consensus/ethash/
+echo "core-geth prepared with Everett patches at $COREGETH_DIR"

@@ -38,9 +38,9 @@ func TestEverettBlockReward(t *testing.T) {
 		want  uint64
 	}{
 		{0, 0},
-		{1, 21_505_376_344_086},             // 2e18 * 1 / 93000, floored
-		{46_500, 1_000_000_000_000_000_000}, // exact midpoint of slow start
-		{93_000, 2_000_000_000_000_000_000}, // full schedule
+		{1, 21_505_376_344_086},              // 2e18 * 1 / 93000, floored
+		{46_500, 1_000_000_000_000_000_000},  // exact midpoint of slow start
+		{93_000, 2_000_000_000_000_000_000},  // full schedule
 		{100_000, 1_987_400_000_000_000_000}, // tail + D(1)
 	}
 	for _, c := range cases {

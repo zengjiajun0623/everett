@@ -46,7 +46,7 @@ kawpowminer -U -P http://0xYourAddress@<node-ip>:8545
 The node **never builds the multi-gigabyte DAG**. GPU miners generate it
 themselves from the seed hash; the node keeps only a ~16 MiB light cache
 per epoch and verifies with it. Node-side CPU mining exists as a bootstrap
-fallback and is slow by design (~700 H/s versus tens of MH/s on a GPU) —
+fallback and is slow by design (~700 H/s versus tens of MH/s on a GPU);
 that asymmetry is the point of a GPU-first chain.
 
 ## Observed first run

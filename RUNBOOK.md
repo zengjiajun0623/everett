@@ -7,7 +7,7 @@
 - **G3:** DAA decision. ✅ v2: ASERT (v1 LWMA split consensus, superseded)
 - **G4:** two-node trustless sync from genesis + independent audit. ✅
 - **G5:** Article IV burn proven on-chain. ✅ 147,000 wei destroyed, 3 accounts exact
-- **G6:** KawPow Go port (launch algorithm). ⏳ open, largest remaining item
+- **G6:** KawPow Go port (launch algorithm). ✅ chain-keyed, GPU-proven, live on Wheeler v2 from genesis
 
 ## Verification loop (three independent gates)
 
@@ -150,19 +150,28 @@ Expect several minutes of DAG generation on first mine (ethash epoch 0).
 
 ## CI gates (GitHub Actions, .github/workflows/ci.yml)
 
-Three jobs run on every push and PR:
+Five jobs run on every push and PR:
 
-1. **consensus unit gates** — Article III schedule vectors, ASERT vectors
+1. **consensus unit gates**: Article III schedule vectors, ASERT vectors
    (including the batch-sync determinism regression), and the KawPow
    differential vectors against Ravencoin's reference values.
-2. **constitution vs implementation** — `scripts/check_consistency.py`
+2. **constitution vs implementation**: `scripts/check_consistency.py`
    asserts the monetary parameters appear identically in CONSTITUTION.md,
-   GENESIS_SPEC.md, the Go client, and both Python auditors, and that the
-   two independent reward implementations agree wei-for-wei over a sweep
-   including every boundary (0, 1, slow-start edges, era edges, deep tail).
+   GENESIS_SPEC.md, the Go client, and both Python auditors, then sweeps
+   the constitution's reward formula against a Python transcription of
+   the Go client's control flow, wei-for-wei over every boundary (0, 1,
+   slow-start edges, era edges, deep tail). The Go binary itself is not
+   executed here (its constants are pattern-checked; its behavior is
+   exercised by the consensus unit gates and the live audits).
    This exists because the 55-agent audit found exactly that drift.
-3. **devnet end-to-end** — builds, mines a real chain, asserts the genesis
+3. **stratum sidecar gates**: `go vet` plus the sidecar unit tests under
+   the race detector, so the production mining transport no longer ships
+   untested.
+4. **devnet end-to-end**: builds, mines a real chain, asserts the genesis
    hash and empty state root are unchanged, then runs the full supply audit.
+5. **formal verification**: builds the Lean 4 proofs (`fv/`, `lake build`
+   under the pinned elan toolchain) and greps `fv/*.lean` for `sorry`,
+   so the machine-checked Article III claims gate every push too.
 
 Every gate has been negative-controlled: mutating KawPow's period (3→4) or
 the constitution's decay constant (993→990) makes the corresponding job
@@ -200,7 +209,7 @@ fail, so a green run means something.
   launching session exits. Both the WSL node and the GPU miner need
   scheduled tasks (`WheelerNode`, `EverettGpuSoak`).
 
-## 2026-08-13 (late): stratum sidecar — written, built, NOT yet run live
+## 2026-08-13 (late): stratum sidecar written and built, NOT yet run live
 
 Written to fix the getwork churn (936 mining suspensions, production
 stalling near difficulty 4M):
@@ -212,7 +221,7 @@ stalling near difficulty 4M):
 - `stratum/kawpow-stratum_test.go`: round-trip test for the compact-bits
   encoder (kawpowminer parses `bits` with SetCompact) plus hex handling.
 - `stratum/README.md`: protocol table, run instructions, and the one open
-  question — whether kawpowminer negotiates plain mode or NiceHash mode
+  question: whether kawpowminer negotiates plain mode or NiceHash mode
   from a `stratum://` URL. If NiceHash, `handle` needs a mode branch.
 - `scripts/run_stratum.sh` to build+run; `scripts/ship_stratum_e2e.sh` runs
   the whole proof in ONE shell invocation (build, unit test, launch,
@@ -222,8 +231,8 @@ stalling near difficulty 4M):
 
 Three bugs found and fixed in review before any run:
 1. `json.Encoder` used concurrently by the job broadcaster and the submit
-   handler — frames could interleave. Added a per-client write mutex.
-2. Fragile `fmt.Sscanf("%x")` parsing of target/height — replaced with
+   handler, so frames could interleave. Added a per-client write mutex.
+2. Fragile `fmt.Sscanf("%x")` parsing of target/height, replaced with
    `big.Int.SetString` and `strconv.ParseUint`.
 3. Job broadcast held the global lock during network writes, so one slow
    miner stalled job propagation to all. Now snapshots under the lock and
@@ -245,7 +254,7 @@ the user can run). Everything above is on disk and uncommitted.
 bash ~/everett/scripts/ship_stratum_e2e.sh
 ```
 
-## 2026-08-13 (day): PR #1 merged — Docker/Portainer packaging (Justin), plus hardening follow-up
+## 2026-08-13 (day): PR #1 merged (Docker/Portainer packaging, Justin), plus hardening follow-up
 
 First external contribution. Justin (MidnightOnMars) shipped a Docker +
 Portainer stack: node image that builds core-geth + Everett patches from
@@ -255,7 +264,7 @@ stack, and a full GUI walkthrough. His build evidence (RTX 3090): both
 images from scratch, 12/12 gates in-build, wei-exact verify_devnet.sh from
 host AND in-container, plus a live Wheeler join. Corroborated on our side:
 the "mystery" external peer from last night mines to the compose stack's
-default throwaway etherbase 0x1000…0001 — it was Justin's stack, and
+default throwaway etherbase 0x1000…0001: it was Justin's stack, and
 burn_audit.py shows its rewards wei-exact (4,558 blocks, 226 uncles,
 3 miners, delta=0 for all three).
 
@@ -269,7 +278,7 @@ Confirmed findings → fixed in follow-up commit on main:
 1. Devnet default was legacy genesis-devnet.json = chain ID 15537393, the
    RESERVED mainnet ID (replay hygiene). Now defaults to genesis-dev.json
    (15537391) everywhere; legacy file ships for compat, marked as such.
-2. Image replicated superseded boot_devnet.sh prep — no KawPow. Now mirrors
+2. Image replicated superseded boot_devnet.sh prep (no KawPow). Now mirrors
    ci_prepare.sh: kawpow files + hooks + TestKawPow gate in the build.
 3. core-geth clone unpinned (consensus binary from moving HEAD). Now pinned
    via COREGETH_COMMIT=10f1ea74… (the gate-verified tree); build-arg
@@ -285,10 +294,10 @@ Confirmed findings → fixed in follow-up commit on main:
 
 Refuted (no action): "unpinned = dishonest pinned-versions table" (table
 was explicit about it), "miner URL needs 0xaddress@" (kawpowminer-only
-quirk; ethminer getwork credits the node's etherbase — proven by the live
+quirk; ethminer getwork credits the node's etherbase, proven by the live
 Wheeler balances).
 
-## 2026-08-13 (afternoon): stratum sidecar LIVE-PROVEN — six-run debugging campaign
+## 2026-08-13 (afternoon): stratum sidecar LIVE-PROVEN, six-run debugging campaign
 
 The one-command e2e (`scripts/ship_stratum_e2e.sh`) is green: RTX 3080
 mining an Everett KawPow devnet through the sidecar, ~1,000+ blocks in
@@ -309,14 +318,14 @@ encoded in code comments, stratum/README.md, and the e2e script):
    process exists 15s after launch.
 3. **Windows quoting**: an inline /tr "cmd /c ... 2^>file" passes a junk
    argument instead of redirecting (caret is literal inside the quoted
-   ssh string) — the death logs went nowhere for two runs.
+   ssh string); the death logs went nowhere for two runs.
 4. **The node stalls submitWork for seconds** after a block burst; one
    synchronous forward in the reply path froze all acks past
    kawpowminer's 2-second watchdog. Sidecar now acks instantly, forwards
    async (≤4 in flight, 8s timeout), and never waits on the node.
-5. **kawpowminer crashes (0xC0000005) on disconnect-while-hashing** — the
+5. **kawpowminer crashes (0xC0000005) on disconnect-while-hashing**: the
    watchdog disconnect wasn't graceful degradation, it was fatal.
-6. **The kernel's search boundary is notify `bits`, not set_target** —
+6. **The kernel's search boundary is notify `bits`, not set_target**:
    the decisive finding. With block bits in the job, the GPU hunted at
    131k while displaying the 8M share target: 1,639 solutions in 7s,
    watchdog, crash. bits now encodes the share target; -sharediff
@@ -332,7 +341,7 @@ GPU_MINING.md stands; the sidecar is now the proven mining path for the
 KawPow era. It should ship in the Docker stack as a third service before
 the Wheeler flip.
 
-## 2026-08-13 (evening): WHEELER V2 — KawPow flip executed
+## 2026-08-13 (evening): WHEELER V2, the KawPow flip, executed
 
 Jiajun's call: "flip wheeler to kawpow and let justin know." Done end to
 end in one session (commit 9e1181f, CI green):
@@ -342,12 +351,12 @@ end in one session (commit 9e1181f, CI green):
   eth/backend.go once the chain config loads. Wheeler + mainnet = KawPow
   from genesis; dev chain keeps EVERETT_KAWPOW env choice; all other
   chain IDs forced off. Unit-tested (TestKawPowActivation). The env-var
-  era is over — consensus never depends on local environment.
+  era is over: consensus never depends on local environment.
 - **Re-genesis**: genesis-wheeler.json v2, extraData "EVERETT WHEELER V2
   KAWPOW", genesis 0xabd9bac321cc9176f1a540d8cab9bea6ce27a4621aeb6199642891141d5e8934,
   chain ID unchanged (15537392). v1 (ethash, ~4.6k blocks) retired.
 - **Bootnode identity preserved**: nodekey copied out before the datadir
-  wipe and restored — the published enode ad614b8c…@71.183.54.11:30303
+  wipe and restored, so the published enode ad614b8c…@71.183.54.11:30303
   remains valid, Justin reconfigures nothing.
 - **Mac node**: --mine --miner.threads 0 (serves work only), etherbase
   Jiajun 0xf3F5…CBA2, kawpow-stratum on :3333 (log: build/stratum-wheeler.log),
@@ -358,7 +367,7 @@ end in one session (commit 9e1181f, CI green):
   (KawPow files + all 5 hooks + TestKawPow gate) and auto-migrates v1
   datadirs (genesis-hash check → wipe → re-init). Rebuilt, synced v2
   trustlessly from the LAN bootnode (public IP hairpin doesn't work from
-  inside the LAN — use 192.168.1.172 there; the sed + schtasks /end
+  inside the LAN, so use 192.168.1.172 there; the sed + schtasks /end
   dance is in the session log). Sync/verify node; the PC's hashpower is
   its GPU via stratum.
 - **Justin notified** on PR #1 (comment 5285009689): migration steps
@@ -378,11 +387,11 @@ by nonce prefix (gpu·stratum vs mac·cpu).
 
 Four-item sprint after the flip, all landed:
 1. launchd agents (ops/launchd/, install.sh) for node/stratum/dashboard/
-   nat-pmp — reboot-proof; migrated live without dropping the GPU miner.
+   nat-pmp, reboot-proof; migrated live without dropping the GPU miner.
 2. kawpow-stratum shipped as a Docker compose service (stratum.Dockerfile);
-   Justin notified (PR #1) — his 3090 has a one-command mining path.
+   Justin notified (PR #1); his 3090 has a one-command mining path.
 3. FIRST WHEELER TRANSACTION (block 1818, tx 0xda02e3b0…): Art IV burn
-   live-verified — 147,000 wei provably destroyed, audit exact for every
+   live-verified: 147,000 wei provably destroyed, audit exact for every
    account including the throwaway's reward-minus-gas. Recipe: personal
    API via --rpc.enabledeprecatedpersonal (IPC only), rotate etherbase to
    throwaway for one block, rotate back, self-transfer.
@@ -393,7 +402,7 @@ Remaining before an Art VIII ceremony: VPS bootnode (Jiajun's account),
 name/trademark sweep, ceremony logistics (T-30 publication, constitution
 hash into genesis extraData, difficulty change at freeze).
 
-## 2026-08-13 (night): formal verification tier — machine-checked constitution
+## 2026-08-13 (night): formal verification tier (machine-checked constitution)
 
 Jiajun's call: "shall we formally verify our implementation on the geth
 client?" Scoped to our consensus delta (verifying geth wholesale is a
@@ -402,20 +411,20 @@ research program, and our risk lives in the delta anyway).
 1. ASERT fixed-point layer: proven by COMPLETE ENUMERATION over its
    finite domain (client/asert_enum_test.go, runs inside the standard
    TestASERT gates, ~10ms). First run falsified my own assumed error
-   bound — true max relative error 0.0105%, matching aserti3-2d's
+   bound: true max relative error 0.0105%, matching aserti3-2d's
    documented ~0.013%; monotonicity, factor range, floor all hold at
    every one of 131,073 exponents.
 2. Article III in Lean 4 (fv/EverettSchedule.lean, core Lean only, zero
    sorries): decay envelope + strict decrease + zero-absorption; THE
-   SUPPLY THEOREM via an era-budget invariant — base-reward issuance
-   through any height ≤ 0.2·B + eraLen·d0·1000/7 (~25.71M ETT decay
+   SUPPLY THEOREM via an era-budget invariant: base-reward issuance
+   through any height ≤ 0.2 ETT·B + eraLen·d0·1000/7 wei (~25.71M ETT decay
    component, ~28.93M under the 9/8 uncle multiplier, both proven);
    decay dead at era 5360 → from block 536,000,000 every reward is
    EXACTLY 0.2 ETT (terminal state is a dated fact); rewards never rise
    post-slow-start. Eight native_decide anchors pin the model to the
-   Go/Python vectors — three independent implementations, one
+   Go/Python vectors: three independent implementations, one
    machine-checked spec.
-3. Kimi adversarial review (house gate) found 6 real findings — a
+3. Kimi adversarial review (house gate) found 6 real findings: a
    summation gap, an undischarged premise, the uncle channel, a
    README ×100000 slip, two comment inaccuracies. ALL closed as
    theorems or corrections; review log in fv/README.md.
@@ -425,30 +434,30 @@ KawPow needs no new apparatus: differential vectors vs the Ravencoin
 reference in the gates, plus every live block is a cross-implementation
 check (kawpowminer's full-DAG path vs our light verify).
 
-## 2026-08-13 (midnight): full audit before the Vitalik send — 26 findings, all resolved
+## 2026-08-13 (midnight): full audit before the Vitalik send, 26 findings, all resolved
 
 Jiajun: "should you run a complete review/audit to see if there's
 anything break?" Six-lens adversarial workflow (41 agents) over the
 day's commits + live-system sweep. Live systems: all green. Repo: 26
-confirmed findings, 8 blockers — fixed in e0d9241 (full inventory in
+confirmed findings, 8 blockers, fixed in e0d9241 (full inventory in
 that commit message). Highlights: the enumeration proofs ran NOWHERE
 despite front-page claims (every prep copied every test file except the
 new one); boot_devnet built a KawPow-free geth (prep now unified on
 ci_prepare, "never fork the prep again"); two sidecar wedge bugs
-(blocking writes under the global lock — deadlines + culling +
+(blocking writes under the global lock; deadlines + culling +
 concurrent broadcasts now); a committed 8.6MB binary under the
 "no prebuilt binaries" claim; hook 6 chain-keys `geth import`; a dozen
 claims updated to match the code (incl. the stratum README recommending
 the exact URL scheme its own dialect section proves broken). CI green
 on all four jobs after; sidecar redeployed live, miner reconnected in
-<1s. Lesson, again: the system was healthy — the CLAIMS had drifted.
+<1s. Lesson, again: the system was healthy; the CLAIMS had drifted.
 Audit cadence should precede every external send.
 
 Addendum (cross-model audit): Jiajun ran a DeepSeek version audit in
 parallel. It independently REPRODUCED the build (identical binary
 version string to the live peer banner), the genesis hash via geth's own
-GenesisToBlock, and all gates — the strongest third-party confirmation
-yet — and caught what our audit missed: only Docker was pinned;
+GenesisToBlock, and all gates (the strongest third-party confirmation
+yet), and caught what our audit missed: only Docker was pinned;
 ci_prepare.sh and the WSL join cloned unpinned HEAD. Fixed in 6e37670
 (pin everywhere + drift assertion in the consistency gate) plus
 SECURITY.md for the CVE posture. Three AI systems have now audited this
