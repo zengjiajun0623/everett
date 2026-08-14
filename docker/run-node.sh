@@ -31,11 +31,7 @@ case "$GENESIS" in
   # default (15537391) silently put a node carrying someone else's genesis
   # on the dev network's wire protocol, where it could find no peers and
   # would have been rejected by the ones it wanted.
-  /*)                   GENESIS_FILE="$GENESIS"
-                        if [ -z "${NETWORKID:-}" ]; then
-                          NETWORKID=$(sed -n 's/.*"chainId"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$GENESIS_FILE" | head -1)
-                          [ -n "$NETWORKID" ] || { echo "run-node: cannot read chainId from $GENESIS_FILE; pass NETWORKID explicitly" >&2; exit 1; }
-                        fi ;;
+  /*)                   GENESIS_FILE="$GENESIS" ;;
   *) echo "run-node: unsupported GENESIS='$GENESIS' (use genesis-dev.json, genesis-wheeler.json, genesis.json, genesis-devnet.json [legacy], or an absolute path)" >&2; exit 1 ;;
 esac
 
@@ -50,12 +46,30 @@ if [ ! -f "$GENESIS_FILE" ]; then
   echo "run-node: genesis file not found: $GENESIS_FILE" >&2
   exit 1
 fi
-GENESIS_CHAINID=$(tr -d ' \n\t\r' < "$GENESIS_FILE" | sed -n 's/.*"chainId":\([0-9][0-9]*\).*/\1/p' | head -1)
+# ONE chainId extraction, used by both the Art VIII guard and the
+# networkid default below. Earlier there were two: a line-based one for
+# networkid and a whitespace-collapsing one for the guard. Collapsing the
+# file to a single line makes BRE `.*` greedy, so that one returned the
+# LAST "chainId" in the file; a genesis with any later chainId-shaped key
+# read as a different chain in the guard than in --networkid. grep -o
+# takes the FIRST match and never spans keys.
+genesis_chainid() {
+  tr -d ' \n\t\r' < "$1" | grep -o '"chainId":[0-9][0-9]*' | head -1 | cut -d: -f2
+}
+GENESIS_CHAINID=$(genesis_chainid "$GENESIS_FILE")
 if [ "$GENESIS_CHAINID" = "15537393" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
   echo "run-node: $GENESIS carries chain ID 15537393, RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
   echo "run-node: use genesis-dev.json (devnet) or genesis-wheeler.json (testnet); set EVERETT_ART_VIII_CEREMONY=1 only as part of the ceremony." >&2
   echo "run-node: (legacy genesis-devnet.json stacks: those datadirs need a pre-flip build anyway; see docker/README.md.)" >&2
   exit 1
+fi
+
+# Absolute-path genesis: derive networkid from the same extraction the
+# guard used. The old default (15537391) put a node carrying someone
+# else's genesis on the dev network's wire protocol.
+if [ -z "${NETWORKID:-}" ]; then
+  NETWORKID="$GENESIS_CHAINID"
+  [ -n "$NETWORKID" ] || { echo "run-node: cannot read chainId from $GENESIS_FILE; pass NETWORKID explicitly" >&2; exit 1; }
 fi
 
 mkdir -p "$DATADIR"

@@ -23,12 +23,16 @@ jobs:
           key: core-geth-${{ hashFiles('scripts/ci_prepare.sh', 'scripts/apply_hook.py', 'scripts/apply_daa_hook.py', 'scripts/apply_kawpow_hooks.py') }}
       - name: Prepare patched core-geth
         run: scripts/ci_prepare.sh
+      # gate_test.sh asserts the tests actually RAN: `go test -run X` exits 0
+      # with "no tests to run" when the pattern matches nothing, so a test
+      # file missing from the prep recipe would otherwise show up as a green
+      # consensus gate.
       - name: Article III schedule vectors
-        run: cd build/core-geth && go test ./params/mutations/ -run TestEverett -v
+        run: cd build/core-geth && bash ../../scripts/gate_test.sh ./params/mutations/ TestEverett 5
       - name: ASERT difficulty vectors (incl. sync-determinism regression)
-        run: cd build/core-geth && go test ./consensus/ethash/ -run TestASERT -v
+        run: cd build/core-geth && bash ../../scripts/gate_test.sh ./consensus/ethash/ TestASERT 11
       - name: KawPow differential vectors (Ravencoin reference)
-        run: cd build/core-geth && go test ./consensus/ethash/ -run TestKawPow -v -timeout 40m
+        run: cd build/core-geth && bash ../../scripts/gate_test.sh ./consensus/ethash/ TestKawPow 7 -timeout 40m
 
   constitution-consistency:
     name: constitution vs implementation
@@ -90,4 +94,7 @@ jobs:
         working-directory: fv
         run: lake build
       - name: Enforce zero sorries (lake treats sorry as a warning)
-        run: "! grep -rn 'sorry' fv/*.lean"
+        # --include over the whole tree, NOT fv/*.lean: that glob stops at
+        # the top level, so the first proof file placed in a subdirectory
+        # could carry a sorry while this job still reported success.
+        run: "! grep -rn --include='*.lean' 'sorry' fv/"

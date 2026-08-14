@@ -146,7 +146,13 @@ function lineChart(el, pts, opts) {
   const W = el.clientWidth || 560, H = 210, L = 54, R = 12, T = 12, B = 24;
   if (pts.length < 2) { el.innerHTML = "<div class='sub'>collecting…</div>"; return; }
   const ys = pts.map(p => p.y), xs = pts.map(p => p.x);
-  const y0 = Math.min(...ys), y1 = Math.max(...ys) || 1;
+  let y0 = Math.min(...ys), y1 = Math.max(...ys) || 1;
+  // A window where every value is identical (a devnet pinned at its floor
+  // difficulty, a quiet chain) gave y0 === y1: the series drew flat on the
+  // x-axis and all three grid labels printed the same number stacked on
+  // one line. Pad the range so a constant series renders as a centered
+  // line with distinct labels.
+  if (y1 === y0) { const pad = Math.abs(y0) * 0.05 || 1; y0 -= pad; y1 += pad; }
   const x0 = xs[0], x1 = xs[xs.length - 1];
   const X = x => L + (x - x0) / (x1 - x0 || 1) * (W - L - R);
   const Y = y => T + (1 - (y - y0) / (y1 - y0 || 1)) * (H - T - B);

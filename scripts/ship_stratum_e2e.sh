@@ -16,9 +16,10 @@
 # WheelerGPU miner on :3333 is untouchable), and the devnet's chain ID
 # is asserted before any mining starts.
 #
-# Precondition: a KawPow devnet running with HTTP on :8555 and IPC at
-# build/kawpow-dev/geth.ipc (scripts/boot_devnet.sh). The script FAILS
-# LOUDLY if that chain is missing or is not chain ID 15537391.
+# No precondition: the run boots its OWN KawPow devnet (dedicated ports
+# 30305/8555/8553, datadir build/kawpow-e2e) and tears it down on exit.
+# The earlier version required a devnet that boot_devnet.sh could not
+# produce, and a chain-ID check alone could not tell KawPow from ethash.
 #
 # The miner URL scheme MUST be stratum+tcp:// (forces plain mode-0
 # stratum). Bare stratum:// autodetects EthereumStratum/2.0.0 → NiceHash
@@ -59,6 +60,18 @@ EVERETT_KAWPOW=1 "$GETH" --datadir "$DATA" --networkid "$DEV_CHAINID" --nodiscov
   --mine --miner.threads 0 --miner.etherbase "$PAYOUT" \
   --http --http.port 8555 --http.api eth,net,web3 > "$NODE_LOG" 2>&1 &
 E2E_NODE=$!
+# Install cleanup NOW, not after the sidecar starts: every failure between
+# here and there (node never answers, wrong chain, algorithm proof, unit
+# tests, build) used to exit with this mining geth still holding :30305,
+# :8555 and :8553, which bricked the next run with a confusing
+# "e2e node died" after rm -rf wiped its datadir.
+SIDECAR=""
+cleanup() {
+  [ -n "${SIDECAR:-}" ] && kill "$SIDECAR" 2>/dev/null
+  kill "$E2E_NODE" 2>/dev/null || true
+  ssh pc3080 "powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='kawpowminer.exe'\\\" | Where-Object {\$_.CommandLine -like '*:$STRATUM_PORT*'} | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; schtasks /delete /tn EverettStratum /f\"" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 for _ in $(seq 1 30); do
   sleep 2
   kill -0 "$E2E_NODE" 2>/dev/null || { say "FAIL: e2e node died"; tail -20 "$NODE_LOG"; exit 1; }
@@ -80,14 +93,9 @@ go build -o "$EVERETT/build/kawpow-stratum-e2e" . || { say "BUILD FAILED"; exit 
 say "=== 2. launch sidecar on :$STRATUM_PORT (production owns :3333) ==="
 nohup "$EVERETT/build/kawpow-stratum-e2e" -node "$DEV_RPC" -listen 0.0.0.0:$STRATUM_PORT > "$LOG" 2>&1 &
 SIDECAR=$!
-# Cleanup kills ONLY what this run started: our sidecar PID and, on
-# pc3080, only the miner process whose command line dials :3334.
-cleanup() {
-  kill "$SIDECAR" 2>/dev/null || true
-  kill "$E2E_NODE" 2>/dev/null || true
-  ssh pc3080 "powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\"Name='kawpowminer.exe'\\\" | Where-Object {\$_.CommandLine -like '*:$STRATUM_PORT*'} | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; schtasks /delete /tn EverettStratum /f\"" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+# cleanup() and its EXIT trap are installed at step 0, right after the node
+# is backgrounded; it kills ONLY what this run started (our two PIDs, and on
+# pc3080 only the miner whose command line dials our port).
 sleep 4
 kill -0 "$SIDECAR" 2>/dev/null || { say "SIDECAR DIED AT START"; cat "$LOG"; exit 1; }
 head -3 "$LOG"
@@ -140,16 +148,20 @@ say "baseline: height=$H0 difficulty=$D0"
 # instance's process tree IS the miner. Stopping is PID-scoped in
 # cleanup(): only the process dialing :3334 dies, never the production
 # WheelerGPU miner on :3333.
-cat > /tmp/mine_stratum.cmd <<CMDEOF
+# mktemp, not a fixed /tmp name: /tmp is world-writable, so a predictable
+# path lets any local user pre-create or swap the file that is about to be
+# copied to pc3080 and executed there as a scheduled task.
+CMD_LOCAL=$(mktemp "${TMPDIR:-/tmp}/mine_stratum.XXXXXX.cmd")
+cat > "$CMD_LOCAL" <<CMDEOF
 @echo off
 C:\Users\Jiajun\kawpowminer\kawpowminer.exe -U -P stratum+tcp://$PAYOUT@$MAC_IP:$STRATUM_PORT 2>C:\Users\Jiajun\kawpowminer\strat-e2e.err
 CMDEOF
-sed -i '' 's/$/\r/' /tmp/mine_stratum.cmd 2>/dev/null || true
+sed -i '' 's/$/\r/' "$CMD_LOCAL" 2>/dev/null || true
 # A failed copy would leave a PREVIOUS run's batch file in place, and the
 # scheduled task would happily launch a miner pointed at :3333, the
 # production sidecar. Cleanup only reaps miners dialing our own port, so
 # that rogue miner would outlive the run.
-scp -q /tmp/mine_stratum.cmd pc3080:mine_stratum.cmd \
+scp -q "$CMD_LOCAL" pc3080:mine_stratum.cmd \
   || { say "FAIL: could not copy the miner batch file to pc3080 (a stale one may target the production sidecar)"; exit 1; }
 # Clear any previous E2E task/miner (matched by :3334 command line only).
 ssh pc3080 "schtasks /end /tn EverettStratum" >/dev/null 2>&1

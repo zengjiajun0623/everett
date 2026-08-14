@@ -109,7 +109,6 @@ if fail:
     for f in fail:
         print("  -", f)
     sys.exit(1)
-print(f"consistency gate PASSED ({len(checks)} document checks, {len(sweep)} reward vectors)")
 
 
 # --- core-geth pin consistency (added after the DeepSeek version audit:
@@ -127,3 +126,8 @@ _j = open(ROOT / "scripts" / "join_wheeler_wsl.sh").read()
 _m3 = _re.search(r'COREGETH_COMMIT:-([0-9a-f]{40})', _j)
 assert _m3 and _m3.group(1) == _m1.group(1), "join_wheeler_wsl.sh pin drift"
 print("core-geth pin consistent across Dockerfile + scripts:", _m1.group(1)[:12])
+
+# Banner LAST: it used to print before the core-geth pin checks below, so a
+# run that failed on pin drift had already announced "consistency gate
+# PASSED" on stdout, which is what a human skims.
+print(f"consistency gate PASSED ({len(checks)} document checks, {len(sweep)} reward vectors)")

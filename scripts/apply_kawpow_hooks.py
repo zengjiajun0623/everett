@@ -112,15 +112,37 @@ HOOKS = [
 # chain-keyed activation. Silently skipping one (the old env-var-era
 # behavior) produced a binary that LOOKS patched but forks from the
 # network on the unpatched path.
+#
+# --verify checks, without writing, that every hook is present AND current.
+# Callers that want to prove a built tree really carries this patch set
+# (scripts/deploy_node.sh, scripts/make_dist.sh) use it: comparing the
+# COPIED files proves nothing about the six hook-injected code blocks.
+VERIFY = "--verify" in sys.argv
+if VERIFY:
+    sys.argv.remove("--verify")
 if len(sys.argv) != 5:
-    sys.exit("usage: apply_kawpow_hooks.py <consensus.go> <sealer.go> <backend.go> <flags.go> "
+    sys.exit("usage: apply_kawpow_hooks.py [--verify] <consensus.go> <sealer.go> <backend.go> <flags.go> "
              f"(exactly 4 paths, got {len(sys.argv) - 1})")
 paths = list(sys.argv[1:5])
 for idx, marker, anchor, repl in HOOKS:
     src = open(paths[idx]).read()
-    if marker in src:
-        print(f"hook {marker[:26]!r}: already present")
+    current = repl in src
+    if current:
+        if VERIFY:
+            print(f"hook {marker[:26]!r}: current")
+        else:
+            print(f"hook {marker[:26]!r}: already present")
         continue
+    if marker in src:
+        # Marker present but the replacement body is not: the tree carries
+        # an OLDER version of this hook. Idempotency-by-marker would leave
+        # it there forever, so a hook edit would never reach an existing
+        # tree and the binary would silently keep the old consensus code.
+        # Same tripwire the sibling hook scripts carry.
+        sys.exit(f"FAIL: outdated hook {marker!r} in {paths[idx]}; "
+                 "delete the core-geth tree and re-run for a clean patch")
+    if VERIFY:
+        sys.exit(f"FAIL: hook {marker!r} MISSING from {paths[idx]}; tree is not patched")
     if anchor not in src:
         sys.exit(f"FAIL: anchor for {marker!r} not found in {paths[idx]}; upstream changed")
     open(paths[idx], "w").write(src.replace(anchor, repl, 1))

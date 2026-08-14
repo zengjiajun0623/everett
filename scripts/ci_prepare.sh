@@ -25,10 +25,20 @@ fetch_pin() {
   git -C "$COREGETH_DIR" fetch --depth 1 origin "$COREGETH_COMMIT"
   git -C "$COREGETH_DIR" checkout FETCH_HEAD
 }
-# Never delete a tree something is currently running from. The launchd
-# production node execs $COREGETH_DIR/build/bin/geth on an operator host;
-# an automatic wipe there would kill the live chain to fix a git problem.
+# Never rebuild or delete a tree something is currently running from. The
+# launchd production node execs $COREGETH_DIR/build/bin/geth on an operator
+# host, so a casual prep here (scripts/boot_devnet.sh defaults to this same
+# path, and it is the README's headline command) would relink the live
+# node's binary underneath it. Deliberate deployment sets EVERETT_DEPLOY=1;
+# everything else is refused with a pointer to an isolated tree.
 in_use() { pgrep -f "^$COREGETH_DIR/build/bin/geth" >/dev/null 2>&1; }
+if in_use && [ "${EVERETT_DEPLOY:-0}" != "1" ]; then
+  echo "FAIL: a node is RUNNING from $COREGETH_DIR." >&2
+  echo "      Preparing it would rebuild the live node's binary underneath it." >&2
+  echo "      Use an isolated tree:  COREGETH_DIR=\$PWD/build/ci/core-geth $0" >&2
+  echo "      To deploy on purpose:  RESTART=1 scripts/deploy_node.sh" >&2
+  exit 1
+fi
 
 if [ ! -d "$COREGETH_DIR" ]; then
   fetch_pin

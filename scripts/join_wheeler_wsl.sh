@@ -58,9 +58,9 @@ python3 /root/everett/scripts/apply_hook.py params/mutations/rewards.go
 python3 /root/everett/scripts/apply_daa_hook.py consensus/ethash/consensus.go
 python3 /root/everett/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go cmd/utils/flags.go
 cp /root/everett/client/kawpow_engine.go consensus/ethash/
-go test ./params/mutations/ -run TestEverett 2>&1 | tail -1
-go test ./consensus/ethash/ -run TestASERT 2>&1 | tail -1
-go test ./consensus/ethash/ -run TestKawPow -timeout 40m 2>&1 | tail -1
+bash /root/everett/scripts/gate_test.sh ./params/mutations/ TestEverett 5 | tail -1
+bash /root/everett/scripts/gate_test.sh ./consensus/ethash/ TestASERT 11 | tail -1
+bash /root/everett/scripts/gate_test.sh ./consensus/ethash/ TestKawPow 7 -timeout 40m | tail -1
 make geth 2>&1 | tail -1
 GETH=/root/everett/build/core-geth/build/bin/geth
 
@@ -105,16 +105,26 @@ fi
 
 # The bootnode must ALSO be a static peer: --bootnodes only seeds
 # discovery, and after any peer drop the node rediscovers the bootnode by
-# its advertised (public) ENR address — which LAN nodes cannot reach when
-# the router doesn't hairpin. A static entry keeps a persistent dial to
+# its advertised (public) ENR address, which LAN nodes cannot reach when
+# the router does not hairpin. A static entry keeps a persistent dial to
 # the address we were actually given. Cost 20 minutes of a zero-peer
 # retry loop to learn.
-mkdir -p /root/wheeler-data/geth
-echo "[\"$BOOTNODE\"]" > /root/wheeler-data/geth/static-nodes.json
+#
+# It must go in config.toml, NOT datadir/geth/static-nodes.json: the
+# pinned core-geth logs "The static-nodes.json file is deprecated and
+# ignored. Use P2P.StaticNodes in config.toml instead." (node/config.go),
+# so the JSON form left the node with discovery only and the incident
+# above would recur silently.
+rm -f /root/wheeler-data/geth/static-nodes.json
+cat > /root/wheeler-config.toml <<TOMLEOF
+[Node.P2P]
+StaticNodes = ["$BOOTNODE"]
+TOMLEOF
 
 cat > /root/start_wheeler.sh <<STARTEOF
 #!/usr/bin/env bash
-exec $GETH --datadir /root/wheeler-data --networkid 15537392 --port 30313 \\
+exec $GETH --config /root/wheeler-config.toml \\
+  --datadir /root/wheeler-data --networkid 15537392 --port 30313 \\
   --bootnodes "$BOOTNODE" --nat none $MINEARGS \\
   --http --http.addr 127.0.0.1 --http.port 8545 --http.api eth,net,web3 \\
   >> /root/wheeler.log 2>&1

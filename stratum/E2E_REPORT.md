@@ -1,18 +1,58 @@
 # Stratum sidecar: end-to-end result
 
+> ## CORRECTION NOTICE, 2026-08-14: three of the numbers below were never measured
+>
+> This report was written by `scripts/ship_stratum_e2e.sh` as it stood at
+> commit 073c9f4. That version read every pc3080 metric over ssh through an
+> over-escaped `\$env:USERPROFILE`, which PowerShell resolved to a path that
+> does not exist; `Get-Content -ErrorAction SilentlyContinue` then returned
+> nothing and the counts came back as 0 or empty no matter what the miner
+> had actually done. Audit round 2 (commit 450a225) diagnosed it against the
+> live 11,880-line miner log: 4,015 accepted shares where the old form
+> returned 0. The report was never regenerated, so the numbers stand here
+> marked rather than deleted.
+>
+> **Instrument error, not measurement** (stratum-sidecar column only):
+>
+> - **Mining suspensions: 0.** A null read. It happens to be the ideal
+>   outcome, which is why nobody questioned it.
+> - **Accepted-share log lines: 0.** A null read. The same run's real log
+>   carried thousands of accepted shares.
+> - **Last reported speed: empty.** A null read, and a row that could not
+>   have populated even with correct escaping: kawpowminer writes no `Speed`
+>   or `Mh/s` line to stderr at all (checked against that 11,880-line log).
+>
+> **Still valid**, because it came from the node itself over IPC or from the
+> sidecar's own local log, neither of which touched the broken ssh path: the
+> block count, the difficulty progression, the per-minute samples table, the
+> sidecar's own BLOCK-line count, and the supply audit.
+>
+> Two further cautions. The `getwork baseline` column is a hard-coded
+> literal in the harness, carried over from an earlier getwork session; this
+> run measured none of it. And the log tail below records a miner disconnect
+> at 14:27:15, so citing this run for "zero disconnects" overstates it.
+>
+> This report also predates the current harness, which reads the miner log
+> with the correct escaping, replaces the never-populated speed row with an
+> effective hashrate computed as accepted shares x share difficulty divided
+> by elapsed time, and FAILS the run outright on zero blocks or zero
+> accepted shares. Its output still goes to `build/STRATUM_E2E_REPORT.md`,
+> which is gitignored, so refreshing this tracked file means copying that
+> file over it after a clean run.
+
 Run: 2026-08-13T18:27:16Z, 12 minutes, RTX 3080 (pc3080)
 mining an Everett KawPow devnet through `kawpow-stratum`.
 
 ## Result
 
-| Metric | getwork baseline | stratum sidecar |
+| Metric | getwork baseline (harness literal, not measured here) | stratum sidecar |
 |---|---|---|
 | Blocks produced | 253 then stalled | 1368 in 12 min |
-| Mining suspensions | 936 | 0 |
-| Accepted-share log lines | 0 (none reported) | 0 |
+| Mining suspensions | 936 | 0 (NOT MEASURED, see notice) |
+| Accepted-share log lines | 0 (none reported) | 0 (NOT MEASURED, see notice) |
 | Blocks logged by sidecar | n/a | 1479 |
 | Difficulty | 131,072 → 4M then stalled | 131427 → 72890515 |
-| Last reported speed | never reported |  |
+| Last reported speed | never reported | (NOT MEASURED, see notice) |
 
 ## Samples
 

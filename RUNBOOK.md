@@ -11,19 +11,38 @@
 
 ## Verification loop (three independent gates)
 
-1. **Go unit tests** (`client/rewards_everett_test.go`): exact wei vectors
-   for D(0..2), half-life neighborhood at era 98, slow-start midpoint, tail
-   floor at era 5000, uncle split. Runs inside `boot_devnet.sh` before build;
-   build aborts on failure.
-2. **Live reward audit** (`scripts/verify_rewards.py`): recomputes the entire
-   schedule in Python (independent implementation) and demands the mining
-   coinbase balance equal the constitutional sum wei-for-wei at head. Stock
-   core-geth pays flat 2/block and fails instantly, so the gate cannot pass
-   vacuously. Also pins the genesis hash and asserts London-at-genesis and
-   the absence of beacon-era fields.
+1. **Go unit tests** (`client/rewards_everett_test.go` into
+   `params/mutations/`, `client/difficulty_everett_test.go` +
+   `client/asert_enum_test.go` + `client/kawpow_core_test.go` into
+   `consensus/ethash/`, copied there by `scripts/ci_prepare.sh`): exact wei
+   vectors for D(0..2), half-life neighborhood at era 98, slow-start
+   midpoint, tail floor at era 5000, uncle split, the ASERT vectors and
+   exhaustive enumeration, and the KawPow differential vectors. All three
+   suites run inside `boot_devnet.sh` before build; build aborts on failure.
+   They run through `scripts/gate_test.sh`, which additionally fails when a
+   `-run` pattern matches no tests, so a file missing from the prep recipe
+   cannot show up as a green gate.
+2. **Live reward audit** (`scripts/verify_devnet.sh`): asserts you are
+   auditing the chain you meant to (`EXPECT_CHAINID`), asserts
+   London-at-genesis and the absence of beacon-era fields, then runs
+   `scripts/burn_audit.py`, which recomputes the entire schedule in Python
+   (independent implementation) plus uncles and the 1559 burn, and demands
+   every directly-modeled account match its RPC balance wei-for-wei
+   (contract-touched accounts are named and skipped, never silently
+   claimed). Stock core-geth pays flat 2/block and fails instantly, so the
+   gate cannot pass vacuously. `scripts/ci_devnet.sh` runs this operator
+   script itself, not merely its audit step.
 3. **Cross-language agreement:** gates 1 and 2 implement Article III twice
    from the text alone. Divergence in either direction is a spec ambiguity;
    fix the constitution's wording, not just the code.
+
+`scripts/verify_rewards.py` is NOT one of these gates and nothing invokes
+it. It is a standalone strict single-miner checker (schedule recomputed in
+Python, genesis pinned via `EXPECT_GENESIS`) kept for manual use, and it
+fails by design on any multi-miner chain. The consistency gate reads its
+source for the Article III constants, so CI keeps its parameters from
+drifting without ever executing it. What actually runs on every push is the
+five-job list under CI gates below.
 
 ## How to run
 
@@ -154,7 +173,11 @@ Five jobs run on every push and PR:
 
 1. **consensus unit gates**: Article III schedule vectors, ASERT vectors
    (including the batch-sync determinism regression), and the KawPow
-   differential vectors against Ravencoin's reference values.
+   differential vectors against Ravencoin's reference values. Each runs
+   through `scripts/gate_test.sh`, which fails unless a stated minimum
+   number of tests actually PASSED: `go test -run` exits 0 with "no tests to
+   run" when the pattern matches nothing, and every gate here selects tests
+   by name from files copied into the tree by the prep recipe.
 2. **constitution vs implementation**: `scripts/check_consistency.py`
    asserts the monetary parameters appear identically in CONSTITUTION.md,
    GENESIS_SPEC.md, the Go client, and both Python auditors, then sweeps
@@ -170,8 +193,11 @@ Five jobs run on every push and PR:
 4. **devnet end-to-end**: builds, mines a real chain, asserts the genesis
    hash and empty state root are unchanged, then runs the full supply audit.
 5. **formal verification**: builds the Lean 4 proofs (`fv/`, `lake build`
-   under the pinned elan toolchain) and greps `fv/*.lean` for `sorry`,
-   so the machine-checked Article III claims gate every push too.
+   under the pinned elan toolchain) and greps the whole `fv/` tree
+   (`grep -rn --include='*.lean'`) for `sorry`, so the machine-checked
+   Article III claims gate every push too. The glob used to be `fv/*.lean`,
+   which stops at the top level: a proof file in a subdirectory could have
+   carried a `sorry` while the job reported success.
 
 Negative controls, honestly scoped. Two mutations are on record and both
 fail their job: KawPow's period (3→4) fails the consensus unit gates
@@ -473,3 +499,110 @@ ci_prepare.sh and the WSL join cloned unpinned HEAD. Fixed in 6e37670
 SECURITY.md for the CVE posture. Three AI systems have now audited this
 chain (Claude, Kimi, DeepSeek); each found something the others missed.
 The AI-native review thesis, demonstrated on ourselves.
+
+## 2026-08-14 (backfilled): hermetic gates, then audit round 1, 44 findings
+
+The two entries below and this one were written on 2026-08-14, after the
+fact. The trail above stopped at the midnight audit while three more commits
+landed the same night, and SECURITY.md sends reviewers here for the full
+audit record: a gap in this file is a false claim on the front door. Round 3
+found it, so it is logged as a finding, not tidied away.
+
+1. **e24cbdd, hermetic verification gates**, from the second DeepSeek
+   re-audit and demonstrated on this host: the e2e devnet node died
+   instantly on port collisions with the live Wheeler node (30303/8545/8551
+   all defaults), the gate then polled the default 8545, the LIVE node
+   answered, and the gate validated the wrong chain, since its only genesis
+   assertion (empty state root) holds for every Everett chain. Fixed with
+   dedicated ports, a process-liveness check on every poll, and chain
+   identity (`eth_chainId` plus the exact genesis hash) in `ci_devnet.sh`;
+   an `EXPECT_CHAINID` guard in `verify_devnet.sh` and optionally in
+   `burn_audit.py`; and a pin assertion on an existing `build/core-geth`.
+2. **d16b375, audit round 1: 44 adversarially confirmed findings** over nine
+   lenses (shell, stratum, consensus Go, Python tooling, docker+CI,
+   docs-vs-reality, Lean FV, live ops, hygiene), each reproduced by an
+   independent verifier before the fix. The consensus one: `kawpow_core`
+   computed the DAG-offset modulus and fetch indices in 32-bit, which wraps
+   at a 16 GiB DAG (epoch 1921, roughly 5.9 years in) and would have split
+   the node from every stock GPU miner; both are 64-bit now, with a
+   regression test pinning cpp-kawpow semantics past the wrap point. Also:
+   gates moved to `COREGETH_DIR=build/ci`, never the tree the launchd
+   production node execs from; `ship_stratum_e2e.sh` made hermetic after the
+   old version could kill the production sidecar and the GPU miner; stored
+   XSS in the dashboard's peer and miner strings; an authorize/submit race
+   and FIFO job eviction in the sidecar; the Art VIII runner guard keyed on
+   chain-ID content rather than filename.
+
+## 2026-08-14 (backfilled): audit round 2, 30 findings, the round about deployment
+
+450a225. Round 2 attacked round 1's own fix commit, and its sharpest finding
+was not code. **The live Wheeler node was still executing PRE-FIX consensus
+code.** Round 1 had correctly moved the verification gates into an isolated
+tree (`build/ci/core-geth`) so a gate could never disturb production, which
+also severed the only path by which verified code reached the running node:
+the 64-bit KawPow DAG fix was proven in a tree the node does not use, and a
+green gate said nothing about the binary launchd execs. Deployment became an
+explicit, verified act, `scripts/deploy_node.sh`: prep, build, assert the
+binary matches the repo's consensus sources, restart, prove the chain
+continues, audit. Production went onto the fixed binary that night; chain
+continued 3965 to 3966, audit wei-exact.
+
+Also in the round:
+1. `verify_devnet.sh`'s new London check was a Python syntax error (a
+   backslash inside an f-string expression) on every Python. It survived a
+   full audit round because NO gate ran that script. `ci_devnet.sh` now runs
+   the operator script itself, so the flow every joiner is told to run is
+   covered by the e2e gate.
+2. `ship_stratum_e2e.sh`'s over-escaped PowerShell made every pc3080 metric
+   read 0 or empty, i.e. the report fabricated the ideal result (4,015 real
+   accepted shares recorded as 0). The harness now proves its own devnet and
+   algorithm, computes a hashrate it can defend, and FAILS on zero blocks or
+   zero accepted shares. The committed artifact from the broken run carries
+   a dated correction notice (`stratum/E2E_REPORT.md`) rather than a quiet
+   deletion of the numbers.
+3. Article VIII had no guard on the distribution channel: `NET=everett`
+   produced a tarball that started the reserved mainnet unconditionally. The
+   dist runner and `make_dist.sh` now carry the same ceremony guard as the
+   docker runner, and `make_dist.sh` refuses to package an unpinned,
+   unpatched, or stale binary.
+4. The same uint32 wrap class as round 1, this time in
+   `kawpowGenerateDataset`'s word offset.
+
+## 2026-08-14: audit round 3, 25 findings, 1 critical
+
+Run against 450a225, which is round 2's own fix commit. The critical finding
+is round 2's shape one level up: **`deploy_node.sh` could report "OK ... on
+the new binary" while the OLD process kept running.** `launchctl unload` and
+`launchctl load` exit 0 even when they do nothing (the round reproduced this
+against a nonexistent plist path: both print "failed: 5: Input/output error"
+and return 0), so `set -euo pipefail` never fires, and the script's only
+evidence of success was the chain height advancing, which a still-running
+old node produces perfectly. The script now proves process identity: the
+geth pid must have changed, and the sha256 of the binary the new pid is
+executing must equal the sha256 of the binary just built.
+
+Three more from the same family:
+1. The name-selected Go gates could pass vacuously. `go test -run X` exits 0
+   with "ok ... [no tests to run]" when the pattern matches nothing, and
+   every consensus gate selects tests by name from files the prep recipe
+   copies into the tree, so a missed copy or a rename reads as green (the
+   midnight audit had already hit exactly that: the ASERT enumeration tests
+   were in no prep recipe at all and the gates stayed green).
+   `scripts/gate_test.sh` now wraps all three CI gates and the same three in
+   `boot_devnet.sh`, and fails unless a stated minimum number of tests
+   actually PASSED.
+2. The Lean sorry-gate globbed `fv/*.lean`, which stops at the top level: a
+   proof file in a subdirectory could carry a `sorry` with the job still
+   green. It greps the tree now.
+3. `apply_kawpow_hooks.py` was idempotent by MARKER, not by content: once a
+   marker was present the hook was skipped, so an edited hook body could
+   never reach an existing tree. Not theoretical. The production core-geth
+   tree was found carrying a stale hook body (a comment line, so no
+   consensus impact), which is exactly the drift the new `--verify` mode
+   detects; both trees verify current again.
+
+The standing lesson, and the thread through all three rounds: a verification
+step must measure something only success can produce. A height that
+advances, an exit status of 0, a marker that exists, a green `go test` with
+no tests in it, a metric read from a path that does not exist: each of those
+is equally satisfied by the failure it was supposed to catch.

@@ -20,9 +20,9 @@ bash "$EVERETT/scripts/ci_prepare.sh"
 
 cd "$COREGETH_DIR"
 echo "== unit tests (verification gates: schedule + DAA incl. exhaustive enumeration + KawPow) =="
-go test ./params/mutations/ -run TestEverett -v
-go test ./consensus/ethash/ -run TestASERT -v
-go test ./consensus/ethash/ -run TestKawPow -timeout 40m
+bash "$EVERETT/scripts/gate_test.sh" ./params/mutations/ TestEverett 5
+bash "$EVERETT/scripts/gate_test.sh" ./consensus/ethash/ TestASERT 11
+bash "$EVERETT/scripts/gate_test.sh" ./consensus/ethash/ TestKawPow 7 -timeout 40m
 
 echo "== build =="
 make geth
@@ -37,14 +37,51 @@ echo "== init genesis =="
 # datadirs need RESET=1 (re-init on genesis-dev.json) under current builds.
 # The chain persists across runs; RESET=1 wipes it and starts from genesis.
 GENESIS_FILE="$EVERETT/${GENESIS:-genesis-dev.json}"
+# networkid follows the genesis file's chainId instead of a hardcoded value.
+NETWORKID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['config']['chainId'])" "$GENESIS_FILE")
+
+# Art. VIII: the reserved mainnet chain begins with a ceremony, not with a
+# dev script. Same guard the container and dist runners carry; this was the
+# only runner without one.
+if [ "$NETWORKID" = "15537393" ] && [ "${EVERETT_ART_VIII_CEREMONY:-0}" != "1" ]; then
+  echo "boot_devnet: $GENESIS_FILE carries chain ID 15537393, RESERVED for the Article VIII launch ceremony (CONSTITUTION.md)." >&2
+  echo "boot_devnet: use genesis-dev.json (default) or genesis-wheeler.json." >&2
+  exit 1
+fi
+
 if [ "${RESET:-0}" = "1" ] || [ ! -d "$DATADIR/geth/chaindata" ]; then
   rm -rf "$DATADIR"
   "$GETH" --datadir "$DATADIR" init "$GENESIS_FILE"
 else
+  # An existing datadir holds whatever chain it was INITIALIZED with. Taking
+  # --networkid from the GENESIS env while reusing that datadir silently
+  # put the old chain on a different wire protocol. Refuse the mismatch.
+  HAVE_GENESIS=$("$GETH" --datadir "$DATADIR" --port 30399 --nodiscover --maxpeers 0 \
+    console --exec 'eth.getBlock(0).hash' 2>/dev/null | grep -o '[0-9a-f]\{64\}' | head -1 || true)
+  WANT_GENESIS=$(python3 - "$GETH" "$GENESIS_FILE" <<'PYEOF'
+import subprocess, sys, tempfile, os, shutil
+geth, gen = sys.argv[1], sys.argv[2]
+d = tempfile.mkdtemp()
+try:
+    subprocess.run([geth, "--datadir", d, "init", gen], capture_output=True, check=True)
+    out = subprocess.run([geth, "--datadir", d, "--port", "30397", "--nodiscover",
+                          "--maxpeers", "0", "console", "--exec", "eth.getBlock(0).hash"],
+                         capture_output=True, text=True)
+    import re
+    m = re.search(r"[0-9a-f]{64}", out.stdout)
+    print(m.group(0) if m else "")
+finally:
+    shutil.rmtree(d, ignore_errors=True)
+PYEOF
+)
+  if [ -n "$HAVE_GENESIS" ] && [ -n "$WANT_GENESIS" ] && [ "$HAVE_GENESIS" != "$WANT_GENESIS" ]; then
+    echo "boot_devnet: $DATADIR holds genesis $HAVE_GENESIS but GENESIS=$GENESIS_FILE is $WANT_GENESIS." >&2
+    echo "boot_devnet: reusing it with --networkid $NETWORKID would run the OLD chain on the NEW network id." >&2
+    echo "boot_devnet: RESET=1 to re-init, or point DATADIR elsewhere." >&2
+    exit 1
+  fi
   echo "existing chain found in $DATADIR (RESET=1 to wipe)"
 fi
-# networkid follows the genesis file's chainId instead of a hardcoded value.
-NETWORKID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['config']['chainId'])" "$GENESIS_FILE")
 
 echo "== mining (Ctrl-C to stop; run verify_devnet.sh in another shell) =="
 # Rewards go to ETHERBASE; set it to your own address to keep what you mine.

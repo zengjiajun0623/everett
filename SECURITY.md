@@ -35,4 +35,12 @@ Posture:
 Every constitutional article is enforced by executable gates (CI on
 every push) and, for the monetary schedule and difficulty filter, by
 machine-checked proofs (fv/) and exhaustive enumeration. The full audit
-trail, including failures, lives in RUNBOOK.md.
+trail, including failures, lives in RUNBOOK.md, whose status log runs to
+the current commit.
+
+Not every gate has been negative-controlled, and RUNBOOK.md scopes which
+have: two recorded mutations turn the consensus and the
+constitution-vs-implementation jobs red, while the stratum sidecar job
+and the Lean proof job have never been shown able to fail on a real
+regression. Read a green run there as "the checks passed", not as "the
+checks were shown able to fail".

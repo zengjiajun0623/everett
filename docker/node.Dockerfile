@@ -61,10 +61,14 @@ RUN python3 /src/scripts/apply_hook.py params/mutations/rewards.go \
 COPY client/kawpow_engine.go consensus/ethash/
 
 # Step 5: verification gate 1 (schedule + DAA + KawPow). All suites MUST
-# pass; a failure here aborts the image build.
-RUN go test ./params/mutations/ -run TestEverett -v \
- && go test ./consensus/ethash/ -run TestASERT -v \
- && go test ./consensus/ethash/ -run TestKawPow -v -timeout 40m
+# pass; a failure here aborts the image build. gate_test.sh additionally
+# asserts the suites actually RAN: `go test -run X` exits 0 with "no tests
+# to run" when nothing matches, so a test file missing from the COPY lines
+# above would otherwise build a green image that verified nothing.
+COPY scripts/gate_test.sh /src/scripts/
+RUN bash /src/scripts/gate_test.sh ./params/mutations/ TestEverett 5 \
+ && bash /src/scripts/gate_test.sh ./consensus/ethash/ TestASERT 11 \
+ && bash /src/scripts/gate_test.sh ./consensus/ethash/ TestKawPow 7 -timeout 40m
 
 # Step 6: build geth.
 RUN make geth

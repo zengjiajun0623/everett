@@ -41,6 +41,20 @@ var (
 	shareDiff = flag.Int64("sharediff", 8_000_000, "share difficulty sent to miners (0 = share target == block target). At trivial chain difficulty a GPU finds hundreds of block-target solutions per second and drowns in its own submission queue; a fixed share difficulty caps the rate like pool vardiff. No block is ever lost: when chain difficulty is below sharediff every share is also a block, and above it the miner submits everything that clears the share bar, which includes every block solution.")
 )
 
+const (
+	// maxClients caps concurrent miner connections (see handle()).
+	maxClients = 128
+	// handshakeTimeout bounds an UNAUTHORIZED connection. A real miner
+	// subscribes and authorizes within milliseconds; a socket that opens
+	// and says nothing is a squatter holding a 64 KiB buffer and a slot.
+	handshakeTimeout = 60 * time.Second
+	// idleTimeout bounds an authorized miner. It is deliberately generous:
+	// a low-hashrate rig can go a long time between shares, and dropping a
+	// healthy miner just to reclaim a slot would be a worse bug than the
+	// one this bounds. Miners reconnect automatically either way.
+	idleTimeout = 30 * time.Minute
+)
+
 // two256 = 2^256, the difficulty-to-target conversion base.
 var two256 = new(big.Int).Lsh(big.NewInt(1), 256)
 
@@ -116,14 +130,16 @@ type work struct {
 	share  string // share target sent to miners (vardiff), 64 hex
 	height uint64
 	bits   string
-	done   bool // guarded by mu: a block was found for this job, or a
-	// newer job superseded it. Solo mode needs exactly ONE
-	// solution per job to reach the node; at trivial devnet
-	// difficulty a GPU finds hundreds per second, and
-	// forwarding them all (each a synchronous node roundtrip
-	// in the read loop) backs up submit replies past the
-	// miner's 2-second response watchdog — it disconnects and
-	// wastes everything. Cost one 12-minute run to learn.
+	done   bool // guarded by mu: a block WAS found for this job. Solo mode
+	// needs exactly ONE solution per job to reach the node; at
+	// trivial devnet difficulty a GPU finds hundreds per second,
+	// and forwarding them all (each a synchronous node roundtrip
+	// in the read loop) backs up submit replies past the miner's
+	// 2-second response watchdog, it disconnects and wastes
+	// everything. Cost one 12-minute run to learn. Job ROTATION
+	// no longer sets this: the node accepts solutions for older
+	// work packages within its stale window, so retiring on
+	// rotation discarded blocks.
 }
 
 var (
@@ -198,12 +214,17 @@ func pollWork() {
 				// the miner needs; the node rebuilds them itself.
 				bits: toCompact(shareT),
 			}
-			// Retire every older job: the node's getWork has moved on, so
-			// their solutions can no longer become blocks through it —
-			// ack them as redundant shares without a node call.
-			for _, old := range jobs {
-				old.done = true
-			}
+			// Older jobs are NOT retired here. core-geth keeps every work
+			// package it handed out and accepts a solution for any of them
+			// within staleThreshold (7) blocks of the current head
+			// (consensus/ethash/sealer.go: s.works[sealhash], pruned only
+			// past that window). getWork changes on every tx that lands in
+			// the pending block, far more often than the head moves, so
+			// retiring on rotation threw away solutions the node would
+			// have accepted as blocks. done is now set only when a block
+			// really was found for that job, which is what it means.
+			// Flood control does not depend on this: vardiff sets the
+			// share target and forwardSlots caps in-flight node calls.
 			current = w
 			jobs[w.jobID] = w
 			jobOrder = append(jobOrder, w.jobID)
@@ -279,7 +300,19 @@ func (c *client) sendJob(w *work, clean bool) {
 var extraSeq uint32
 
 func handle(conn net.Conn) {
+	// Cap concurrent miners. The listener is deliberately reachable from
+	// the LAN (and the compose stack publishes it), so without a cap any
+	// host can pin unbounded memory: every connection holds a 64 KiB
+	// scanner buffer and an entry in the clients map for as long as it
+	// stays open. A solo sidecar serves a handful of rigs; 128 is far
+	// above any real fleet and far below a resource problem.
 	mu.Lock()
+	if len(clients) >= maxClients {
+		mu.Unlock()
+		log.Printf("refusing %s: %d clients already connected (cap)", conn.RemoteAddr(), maxClients)
+		conn.Close()
+		return
+	}
 	extraSeq++
 	c := &client{conn: conn, enc: json.NewEncoder(conn),
 		extranonce: fmt.Sprintf("%04x", extraSeq&0xffff)}
@@ -295,12 +328,25 @@ func handle(conn net.Conn) {
 
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 64*1024), 64*1024)
+	// Two-phase read deadline. Until the miner authorizes it gets only
+	// handshakeTimeout; afterwards the generous idleTimeout. Without any
+	// deadline these connections lived forever, holding their buffer and
+	// client slot, with no cap on how many a LAN host could open.
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	defer func() {
 		// nil err = clean EOF (the miner closed); anything else names the
 		// real reason this side dropped the session.
 		log.Printf("miner %s disconnected: scan err=%v", conn.RemoteAddr(), sc.Err())
 	}()
 	for sc.Scan() {
+		// Refresh: an active miner keeps its session alive by talking.
+		// Authorized sessions get the generous window, handshaking ones
+		// stay on the short leash.
+		if c.authorized {
+			_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		} else {
+			_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+		}
 		var m stratumMsg
 		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
 			continue

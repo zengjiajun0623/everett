@@ -1,11 +1,16 @@
 // kawpow_engine.go wires the KawPow core into core-geth's consensus paths.
 //
-// Design note: an Everett node NEVER builds the multi-gigabyte DAG. GPU
-// miners generate it themselves (that is how Ravencoin works), so the node
-// keeps only the ~16 MiB light cache plus the 16 KiB cDag per epoch and
-// verifies with kawpowLight. Node-side CPU mining uses the same light path:
-// slow, but it exists only as a devnet/bootstrap fallback. Real hashrate
-// arrives over the work API from T-Rex/kawpowminer.
+// Design note: VERIFICATION never builds the multi-gigabyte DAG. GPU miners
+// generate it themselves (that is how Ravencoin works), so a node that only
+// verifies keeps the ~16 MiB light cache plus the 16 KiB cDag per epoch and
+// checks seals with kawpowLight. Real hashrate arrives over the work API
+// from T-Rex/kawpowminer.
+//
+// Node-side CPU mining is the exception: kawpowFullFor builds the full DAG
+// once per epoch (kawpowComputeFull below), guarded by its own mutex so the
+// build never blocks verification. That path runs only with
+// --miner.threads > 0, which is a devnet/bootstrap fallback, but it does
+// allocate the gigabytes; do not read this note as "the binary cannot".
 //
 // ACTIVATION (v2, chain-keyed): SetKawPowChainID is called from the eth
 // backend once the chain config is loaded — Wheeler (v2) and Everett

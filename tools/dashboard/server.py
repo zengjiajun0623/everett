@@ -29,6 +29,11 @@ PORT = int(os.environ.get("PORT", "8484"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIT = os.path.join(HERE, "..", "..", "scripts", "burn_audit.py")
 AUDIT_CMD = ["python3", AUDIT]   # exact spawn cmdline; also the stale-kill match
+# The audit refuses to run against a chain other than this one. It must
+# track RPC: hardcoding Wheeler made a dashboard pointed at any other node
+# (the docstring advertises RPC as a knob) show a permanent red audit FAIL
+# with an assertion in the tile.
+EXPECT_CHAINID = os.environ.get("EXPECT_CHAINID", "15537392")
 WINDOW = 300          # blocks kept for charts
 AUDIT_EVERY = 300     # seconds between exact supply audits
 
@@ -223,7 +228,7 @@ def run_audit():
             # crash never leaves N concurrent full-chain replays behind;
             # kill_stale_audits() at startup mops up anything that did.
             proc = subprocess.Popen(
-                AUDIT_CMD, env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": "15537392"},
+                AUDIT_CMD, env={**os.environ, "RPC": RPC, "EXPECT_CHAINID": EXPECT_CHAINID},
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 start_new_session=True)
             with _audit_lock:
