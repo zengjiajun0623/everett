@@ -793,6 +793,54 @@ probe fails. Two working rules came out of it: a fix is not landed until it
 is landed in every runner that has the same intent, and a new guard is
 itself unaudited code that belongs in the next round's scope.
 
+## 2026-08-14: first external node joins; the GPU miner wedges silently
+
+**Wheeler got its first independent participant.** 79.112.90.198 (Romania,
+darwin-arm64) connected inbound running CoreGeth/v1.12.23-unstable-10f1ea74,
+our exact pin, and synced from genesis to the chain tip (block 7,499, head
+0x8669228b..., total difficulty 1,931,987,981,088) in about 90 seconds. It
+is a verifier, not a miner: it independently checked every KawPow seal
+without asking anyone's permission, which is the property the whole project
+exists to demonstrate. Three earlier attempts that same night (Linode, and
+two others) all ran STOCK builds, handshook, synced zero blocks and dropped,
+because the genesis deliberately carries no custom fields: an unpatched
+client cannot tell it is on a chain it cannot verify. The README now carries
+a tested join recipe and, more usefully, the signature of that failure
+(height stuck at 0x0 while peer count is non-zero).
+
+**The same hour, the chain stalled for 27 minutes and nothing noticed.** The
+GPU miner wedged: nvidia-smi showed 100% utilization and 190W, the TCP
+session to the sidecar stayed ESTABLISHED, and zero shares arrived. The
+sidecar behaved correctly throughout, holding job 00000b10 for height 7500
+and waiting. Restarting the WheelerGPU scheduled task cleared it instantly
+and blocks resumed within seconds.
+
+Two lessons, both now fixed in code:
+
+1. **Every monitor here watched correctness, not liveness.** burn_audit kept
+   printing PASS, the gates stayed green, the dashboard rendered fine. A
+   stalled chain is not an invalid chain, so a correctness monitor is blind
+   to it by construction. scripts/liveness_watch.sh (launchd
+   com.everett.liveness, every 60s) now alarms over iMessage when the head
+   block is older than 300s or the RPC is unreachable, once per episode,
+   with a recovery message. At the 13s target a 300s gap is ~23 missed
+   blocks, so it fires on breakage, not variance.
+2. **Stale log files cost most of the diagnosis time.** kawpowminer's live
+   log is wheeler.err (written by mine_wheeler.cmd); the directory also held
+   strat.err, strat2.err, soak.err, m2/m3/m4.err and miner.err from earlier
+   sessions. strat.err looked current and plausible and was 22 hours stale,
+   so it told a story about "block 2619" while the chain was at 7,499. The
+   stale files are archived to kawpowminer/old-logs; only wheeler.err
+   remains. A monitoring surface that keeps decoys next to the real thing is
+   worse than no monitoring surface.
+
+Also corrected here: pc3080 was briefly suspected of lagging because
+admin_peers reported an old head for it. That reading was wrong. A peer's
+advertised head only updates when that peer ANNOUNCES a block, and a
+non-mining verifier never does, so its advertised head sits frozen at
+session start. pc3080 was at the network head the whole time, confirmed by
+querying it directly (7,499, identical hash and total difficulty).
+
 ## 2026-08-14: audit round 4, 6 code findings, five in the night's own guards
 
 6e96e89, run against ed5a046 on the theory that the newest code is the least

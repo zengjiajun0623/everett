@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.everett.liveness</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string>
+    <string>__HOME__/everett/scripts/liveness_watch.sh</string>
+  </array>
+  <!-- Every 60s. The watcher is a single RPC call and exits, so this is a
+       periodic job, not a daemon: RunAtLoad plus StartInterval, and no
+       KeepAlive (KeepAlive would relaunch it in a tight loop). -->
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>__HOME__/everett/build/liveness-service.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/everett/build/liveness-service.log</string>
+</dict></plist>
