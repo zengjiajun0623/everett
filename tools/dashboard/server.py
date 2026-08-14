@@ -255,12 +255,19 @@ def run_audit():
             tail = lines[-6:]
             verdict = "PASS" if any("PASS" in l for l in lines) else "FAIL"
             stats = next((l for l in lines if l.startswith("blocks=")), "")
-            # total supply = sum of the audit's exact per-miner balances
+            # Supply = issuance minus burn, read from the audit's own
+            # supply= line. It used to be the SUM of the per-account
+            # "actual=" balances, which is only equal to supply while every
+            # holder happens to appear in a transaction. The moment a
+            # contract pays an address that never sent one (a swap paying a
+            # maker), that balance is real on chain but absent from the
+            # model, and the tile would have quietly undercounted while
+            # still being labelled exact.
             supply_wei = 0
             for l in lines:
-                if " actual=" in l:
+                if l.startswith("supply="):
                     try:
-                        supply_wei += int(l.split(" actual=")[1].split()[0])
+                        supply_wei = int(l.split("supply=")[1].split()[0])
                     except (ValueError, IndexError):
                         pass
             with S.lock:

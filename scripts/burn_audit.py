@@ -59,6 +59,7 @@ head = int(rpc("eth_blockNumber", []), 16)
 bal = defaultdict(int)
 inexact = set()  # contract accounts whose value may have moved internally
 burned = 0
+issued = 0     # every wei the chain minted: block rewards + uncle rewards
 txs = 0
 uncles_seen = 0
 for n in range(1, head + 1):
@@ -66,6 +67,7 @@ for n in range(1, head + 1):
     miner = b["miner"].lower()
     base = int(b["baseFeePerGas"], 16)
     bal[miner] += reward(n)
+    issued += reward(n)
     # Article III.5: per uncle, floor(R/32) to the uncle's miner and
     # floor(R/32) to this block's miner.
     r32 = reward(n) // 32
@@ -73,6 +75,7 @@ for n in range(1, head + 1):
         u = rpc("eth_getUncleByBlockNumberAndIndex", [hex(n), hex(i)])
         bal[u["miner"].lower()] += r32
         bal[miner] += r32
+        issued += 2 * r32
         uncles_seen += 1
     for tx in b["transactions"]:
         rec = rpc("eth_getTransactionReceipt", [tx["hash"]])
@@ -125,6 +128,12 @@ for acct, expected in sorted(bal.items()):
         print(f"{status} {acct} modeled={expected} actual={actual} delta={actual-expected}")
 
 print(f"blocks={head} txs={txs} uncles={uncles_seen} burned={burned} wei")
+# Supply as ISSUANCE MINUS BURN, not as a sum of the accounts this model
+# happened to touch. Those differ the moment a contract pays an address
+# that never appears in a transaction: that balance exists on chain but is
+# invisible to basic-RPC accounting, so summing modeled balances would
+# silently undercount. This figure stays exact on any chain.
+print(f"supply={issued - burned} wei issued={issued} wei")
 if not ok:
     sys.exit("FAIL: account model diverges from chain state")
 if txs and burned <= 0:

@@ -160,6 +160,17 @@ type client struct {
 	extranonce string
 	authorized bool
 	worker     string
+	// inFlight bounds this client to ONE forward at a time. The sidecar is
+	// consensus-free by design, so it cannot cheaply tell a real share from
+	// shape-valid garbage: only the node can, and each check costs it a full
+	// KawPow light verification. core-geth's remote sealer handles submits,
+	// new work, and getWork on ONE goroutine, so an unauthenticated LAN
+	// client spamming well-formed junk could occupy all four forward slots
+	// and starve both the honest miner's winning share and new-work
+	// generation, stalling block production without doing any PoW itself.
+	// One slot per client caps that at 1/4 of the pipe. It costs an honest
+	// miner nothing: the done flag already means one solution per job.
+	inFlight atomic.Bool
 }
 
 func strip0x(s string) string { return strings.TrimPrefix(s, "0x") }
@@ -472,13 +483,27 @@ func (c *client) submit(params []interface{}) bool {
 	// Ack instantly and forward ASYNC. The node can stall for seconds
 	// digesting a block burst; a synchronous forward here puts that stall
 	// on the miner's reply path and trips its 2-second response watchdog
-	// (observed live — this, not share volume, killed four runs). The
-	// share met the target we set, so it is a good share regardless of
-	// what the node eventually says; only BLOCK logging depends on that.
+	// (observed live, and this rather than share volume killed four runs).
+	//
+	// The share is NOT known to be good here: this sidecar never checks it
+	// against the target, because doing so is exactly the KawPow work the
+	// node does on submitWork. An earlier comment claimed otherwise and was
+	// wrong. What is bounded instead is cost: one forward per client at a
+	// time, and four overall.
+	if !c.inFlight.CompareAndSwap(false, true) {
+		// This client already has a submit being verified by the node.
+		// Ack it (the miner should not stall on our accounting) but do not
+		// spend a second node verification on it.
+		nSkipped := forwardsSkipped.Add(1)
+		if nSkipped == 1 || nSkipped%100 == 0 {
+			log.Printf("submits skipped, client already has one in flight: %d so far", nSkipped)
+		}
+		return true
+	}
 	select {
 	case forwardSlots <- struct{}{}:
 		go func() {
-			defer func() { <-forwardSlots }()
+			defer func() { <-forwardSlots; c.inFlight.Store(false) }()
 			var accepted bool
 			err := nodeCall("eth_submitWork",
 				[]string{"0x" + n, "0x" + strip0x(header), "0x" + strip0x(mix)}, &accepted)
@@ -499,8 +524,9 @@ func (c *client) submit(params []interface{}) bool {
 			}
 		}()
 	default:
-		// All forward slots busy (node stalled): the share is still good;
-		// dropping the forward loses nothing a later share won't redo.
+		// All forward slots busy (node stalled). Dropping the forward loses
+		// nothing a later share will not redo.
+		c.inFlight.Store(false)
 		nDropped := forwardsDropped.Add(1)
 		if nDropped == 1 || nDropped%50 == 0 {
 			log.Printf("forwards dropped while node busy: %d so far", nDropped)
@@ -515,6 +541,7 @@ var (
 	forwardSlots    = make(chan struct{}, 4)
 	sharesBelow     atomic.Uint64
 	forwardsDropped atomic.Uint64
+	forwardsSkipped atomic.Uint64
 )
 
 func main() {
