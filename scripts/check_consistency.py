@@ -171,4 +171,36 @@ print("core-geth pin consistent across Dockerfile + scripts:", _m1.group(1)[:12]
 # Banner LAST: it used to print before the core-geth pin checks below, so a
 # run that failed on pin drift had already announced "consistency gate
 # PASSED" on stdout, which is what a human skims.
+
+# --- prep-recipe drift ------------------------------------------------------
+# docker/node.Dockerfile still re-implements ci_prepare.sh, on purpose:
+# delegating would force `COPY . /src` BEFORE the core-geth fetch, so a
+# README typo would bust the clone layer and re-run the 40-minute KawPow
+# gate. The cost of keeping that copy is drift, and drift in exactly this
+# list is what once shipped a green consensus gate that ran zero tests (a
+# test file was added to some recipes' copy lists and not others). So the
+# duplication is allowed but GATED: both recipes must copy the same client
+# files and apply the same hooks to the same targets.
+def _prep_facts(text):
+    files = set(_re.findall(r'client/(\w+\.go)', text))
+    hooks = set()
+    for m in _re.finditer(r'(apply_\w+\.py)"?((?:\s+[\w/]+\.go)+)', text):
+        targets = tuple(sorted(t.split('/')[-1] for t in m.group(2).split()))
+        hooks.add((m.group(1), targets))
+    return files, hooks
+
+
+_ci_files, _ci_hooks = _prep_facts(_ci)
+_df_files, _df_hooks = _prep_facts(_df)
+if _ci_files != _df_files:
+    raise AssertionError(
+        "prep drift: docker/node.Dockerfile copies a different set of client files than "
+        f"ci_prepare.sh (missing {sorted(_ci_files - _df_files)}, extra {sorted(_df_files - _ci_files)}). "
+        "A file copied by one recipe and not the other is how a gate ends up running zero tests.")
+if _ci_hooks != _df_hooks:
+    raise AssertionError(
+        "prep drift: docker/node.Dockerfile applies different hooks or targets than ci_prepare.sh:"
+        f"\n  ci_prepare: {sorted(_ci_hooks)}\n  Dockerfile: {sorted(_df_hooks)}")
+print(f"prep recipes agree: {len(_ci_files)} client files, {len(_ci_hooks)} hook invocations")
+
 print(f"consistency gate PASSED ({len(checks)} document checks, {len(sweep)} reward vectors)")

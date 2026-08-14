@@ -30,34 +30,25 @@ else
   git clone -q https://github.com/zengjiajun0623/everett /root/everett
 fi
 cd /root/everett
+# ONE canonical prep. This used to re-implement ci_prepare.sh's twelve
+# steps inline (pin, fetch, two compat seds, six file copies, three hook
+# appliers). That is exactly the shape of bug the audit campaign kept
+# finding: a change to the copy list or a hook argument had to be
+# remembered in three places, and when it was not, a consensus gate ran
+# zero tests. Delegating removes one of the three copies outright.
+#
+# EVERETT_DEPLOY=1 is the honest flag here: ci_prepare refuses by default
+# to rebuild a tree a live node runs from, and on this host that node is
+# exactly the one this script owns and is about to restart.
+#
+# The pin literal stays: scripts/check_consistency.py asserts that this
+# file, ci_prepare.sh and docker/node.Dockerfile all name the same
+# core-geth commit, so dropping it would silently remove this recipe from
+# that gate. It is passed through so the two cannot disagree.
 COREGETH_COMMIT="${COREGETH_COMMIT:-10f1ea745cd89d72c398484a234cdc7fb29ecc32}"
-# Every run converges the checkout on the pin: fetch the pinned SHA, hard
-# reset onto it, drop stray files. An existing tree is never trusted (a
-# stale HEAD would silently build the live node against the wrong
-# upstream), and re-runs are deterministic because the Everett patches
-# below are re-applied to a pristine tree each time.
-if [ ! -d build/core-geth/.git ]; then
-  rm -rf build/core-geth
-  git init -q build/core-geth
-  git -C build/core-geth remote add origin https://github.com/etclabscore/core-geth
-fi
-git -C build/core-geth fetch -q --depth 1 origin "$COREGETH_COMMIT"
-git -C build/core-geth checkout -qf FETCH_HEAD
-git -C build/core-geth clean -qfd
-HAVE=$(git -C build/core-geth rev-parse HEAD)
-[ "$HAVE" = "$COREGETH_COMMIT" ] || { echo "FAIL: checkout is at $HAVE, pin is $COREGETH_COMMIT" >&2; exit 1; }
+COREGETH_DIR=/root/everett/build/core-geth COREGETH_COMMIT="$COREGETH_COMMIT" \
+  EVERETT_DEPLOY=1 bash /root/everett/scripts/ci_prepare.sh
 cd build/core-geth
-if grep -q "blst v0.3.1[1-6]" go.mod; then go get github.com/supranational/blst@v0.3.17; fi
-sed -i -e '/fjl\/memsize\/memsizeui/d' -e '/var Memsize memsizeui.Handler/d' \
-  -e '/http.Handle("\/memsize\/"/d' internal/debug/flags.go
-sed -i '/debug.Memsize.Add("node", stack)/d' cmd/geth/main.go
-cp /root/everett/client/rewards_everett.go /root/everett/client/rewards_everett_test.go params/mutations/
-cp /root/everett/client/difficulty_everett.go /root/everett/client/difficulty_everett_test.go /root/everett/client/asert_enum_test.go consensus/ethash/
-cp /root/everett/client/kawpow_core.go /root/everett/client/kawpow_core_test.go consensus/ethash/
-python3 /root/everett/scripts/apply_hook.py params/mutations/rewards.go
-python3 /root/everett/scripts/apply_daa_hook.py consensus/ethash/consensus.go
-python3 /root/everett/scripts/apply_kawpow_hooks.py consensus/ethash/consensus.go consensus/ethash/sealer.go eth/backend.go cmd/utils/flags.go
-cp /root/everett/client/kawpow_engine.go consensus/ethash/
 bash /root/everett/scripts/gate_test.sh ./params/mutations/ TestEverett 5 | tail -1
 bash /root/everett/scripts/gate_test.sh ./consensus/ethash/ TestASERT 11 | tail -1
 bash /root/everett/scripts/gate_test.sh ./consensus/ethash/ TestKawPow 7 -timeout 40m | tail -1

@@ -26,9 +26,3 @@ Note: the files under client/ are written to be dropped into core-geth,
 which is licensed LGPL-3.0; once merged into that codebase they are
 distributed under its terms.
 
-Exception: client/kawpow/reference/go-quai/ is UNMODIFIED third-party
-code vendored for differential testing only (from dominant-strategies/
-go-quai, itself derived from go-ethereum). Those files carry their own
-GNU LGPL-3.0 headers and are licensed under the LGPL-3.0, not the MIT
-grant above. They are never linked into Everett binaries; the shipped
-KawPow implementation is client/kawpow_core.go.
