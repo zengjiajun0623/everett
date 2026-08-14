@@ -5,15 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Everett · Wheeler network</title>
 <style>
-  /* Single-theme by choice: a mining war-room is dark. All colors explicit. */
+  /* LIGHT by default; dark is opt-in via the toggle (stored per browser).
+     Deliberately NOT keyed on prefers-color-scheme: this dashboard is read
+     in daylight on a machine whose OS may sit in dark mode, and the default
+     should be what the operator asked for, not what the OS guessed.
+
+     The categorical trio is validated against the light surface, not
+     inherited from the dark theme: the old #1fa3b4 teal only reached 2.94:1
+     on white (below the 3:1 floor), so the primary is a darker, more
+     saturated #008b9c. Amber and purple carry over unchanged. All six
+     checks pass on both surfaces: lightness band, chroma floor, CVD
+     separation (worst adjacent dE 16.2 protan), normal-vision floor, and
+     contrast. Neutrals are biased slightly cool toward the accent rather
+     than pure gray. */
   :root {
-    --bg: #0e1420; --panel: #141c2b; --panel2: #182132;
-    --line: #232e44; --ink: #dde5f1; --ink2: #8fa0b8; --ink3: #5c6b84;
-    --accent: #1fa3b4;               /* chain / primary series */
-    --cat-a: #1fa3b4;                /* miner: jiajun  */
+    --bg: #fbfcfd; --panel: #ffffff; --panel2: #f2f5f8;
+    --line: #dfe5ec; --ink: #16202e; --ink2: #4d5b70; --ink3: #77869b;
+    --accent: #008b9c;               /* chain / primary series */
+    --cat-a: #008b9c;                /* miner: jiajun  */
     --cat-b: #b07f14;                /* miner: justin  */
     --cat-c: #8a68d8;                /* miner: other   */
     --good: #2f9e5f; --warn: #b07f14; --crit: #c24545;
+    --area: 0.14;                    /* area fill under the line */
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1420; --panel: #141c2b; --panel2: #182132;
+    --line: #232e44; --ink: #dde5f1; --ink2: #8fa0b8; --ink3: #5c6b84;
+    --accent: #1fa3b4;
+    --cat-a: #1fa3b4; --cat-b: #b07f14; --cat-c: #8a68d8;
+    --good: #2f9e5f; --warn: #b07f14; --crit: #c24545;
+    --area: 0.08;
   }
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -50,10 +71,14 @@
   .bar { height: 5px; border-radius: 3px; background: var(--panel2); position: relative; margin-top: 4px; }
   .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
   .feed { max-height: 300px; overflow-y: auto; }
-  .tip { position: fixed; pointer-events: none; background: #0a0f18; border: 1px solid var(--line);
+  .tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+         box-shadow: 0 4px 14px rgba(16, 32, 46, .10);
          border-radius: 6px; padding: 6px 9px; font-size: 12px; color: var(--ink); display: none; z-index: 5; }
   footer { color: var(--ink3); font-size: 11.5px; margin-top: 8px; }
   a { color: var(--accent); }
+  .pill.toggle { cursor: pointer; user-select: none; font: inherit; font-size: 12px; }
+  .pill.toggle:hover { border-color: var(--accent); color: var(--ink); }
+  .pill.toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -64,6 +89,9 @@
     <span class="pill" id="p-node"><span class="dot" style="background:var(--ink3)"></span>node</span>
     <span class="pill" id="p-audit"><span class="dot" style="background:var(--ink3)"></span>audit</span>
     <span class="pill num" id="p-clock">—</span>
+    <button class="pill toggle" id="p-theme" type="button" aria-label="Switch between light and dark">
+      <span class="dot" style="background:var(--accent)"></span><span id="p-theme-l">dark</span>
+    </button>
   </div>
 </header>
 
@@ -99,6 +127,18 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// Theme: light unless this browser has explicitly chosen dark. Applied
+// before first paint (this script runs in <body>, after the CSS) so the
+// page never flashes the wrong palette.
+const THEME_KEY = "everett-theme";
+function applyTheme(t) {
+  if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  else document.documentElement.removeAttribute("data-theme");
+  const label = document.getElementById("p-theme-l");
+  if (label) label.textContent = t === "dark" ? "light" : "dark";
+}
+applyTheme(localStorage.getItem(THEME_KEY) || "light");
 // Escape any RPC-derived string before it reaches an innerHTML sink.
 // Peer clientIds, remote addresses, and miner/etherbase strings are all
 // controlled by remote peers or miners; never interpolate them raw.
@@ -143,7 +183,7 @@ const hideTip = () => tip.style.display = "none";
 
 function lineChart(el, pts, opts) {
   // pts: [{x, y, label}] — single series, one axis, hover crosshair.
-  const W = el.clientWidth || 560, H = 210, L = 54, R = 12, T = 12, B = 24;
+  const W = el.clientWidth || 560, H = 210, L = 70, R = 12, T = 12, B = 24;
   if (pts.length < 2) { el.innerHTML = "<div class='sub'>collecting…</div>"; return; }
   const ys = pts.map(p => p.y), xs = pts.map(p => p.x);
   let y0 = Math.min(...ys), y1 = Math.max(...ys) || 1;
@@ -162,7 +202,7 @@ function lineChart(el, pts, opts) {
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${opts.aria}">
     ${gridY.map(g => `<line x1="${L}" x2="${W-R}" y1="${Y(g)}" y2="${Y(g)}" stroke="var(--line)" stroke-width="1"/>
       <text x="${L-6}" y="${Y(g)+3.5}" text-anchor="end">${fmt(Math.round(g))}</text>`).join("")}
-    <path d="${d} L ${X(x1)} ${H-B} L ${X(x0)} ${H-B} Z" fill="var(--accent)" opacity="0.08"/>
+    <path d="${d} L ${X(x1)} ${H-B} L ${X(x0)} ${H-B} Z" fill="var(--accent)" opacity="var(--area)"/>
     <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2"/>
     <circle cx="${X(last.x)}" cy="${Y(last.y)}" r="3.5" fill="var(--accent)"/>
     <text x="${L}" y="${H-7}">${opts.x0}</text>
@@ -183,7 +223,7 @@ function lineChart(el, pts, opts) {
 
 function barChart(el, bars, opts) {
   // bars: [{y, label}] — one axis, per-bar hover, 2px gaps, avg line.
-  const W = el.clientWidth || 380, H = 210, L = 34, R = 8, T = 12, B = 24;
+  const W = el.clientWidth || 380, H = 210, L = 42, R = 8, T = 12, B = 24;
   if (!bars.length) { el.innerHTML = "<div class='sub'>collecting…</div>"; return; }
   const y1 = Math.max(...bars.map(b => b.y), opts.target * 2) || 1;
   const Y = y => T + (1 - y / y1) * (H - T - B);
@@ -206,6 +246,13 @@ function barChart(el, bars, opts) {
   });
   el.firstElementChild.addEventListener("mouseleave", hideTip);
 }
+
+document.getElementById("p-theme").addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+  refresh();   // charts inline their colors at render time, so redraw them
+});
 
 async function refresh() {
   let st;
