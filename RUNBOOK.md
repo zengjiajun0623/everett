@@ -199,19 +199,36 @@ Five jobs run on every push and PR:
    which stops at the top level: a proof file in a subdirectory could have
    carried a `sorry` while the job reported success.
 
-Negative controls, honestly scoped. Two mutations are on record and both
-fail their job: KawPow's period (3→4) fails the consensus unit gates
-(`TestKawPow`), and the constitution's decay constant (993→990) fails the
-constitution-vs-implementation gate. Those runs date from the three-job CI
-(consensus, consistency, devnet e2e), which the 2026-08-13 entry below
-records as negative-controlled. The two jobs added since, the stratum
-sidecar gates and the formal-verification job, have **not** been
-negative-controlled: nothing on record shows a real regression making them
-red, so read a green run there as "the checks passed", not as "the checks
-were shown able to fail". The missing controls would be, e.g., breaking
-`toCompact` to show job 3's `TestToCompactRoundTrip` /
-`TestShareTargetBoundaries` go red, and flipping a constant in `fv/*.lean`
-to show job 5's `lake build` does.
+Negative controls, honestly scoped, job by job. The blanket form of this
+claim ("All negative-controlled", the 2026-08-13 entry below) was written
+when the CI had three jobs and one of those three never had a control at
+all, so the enumeration is the only honest form. Three of the five jobs have
+a mutation on record that turns them red:
+
+- **1, consensus unit gates**: KawPow's period 3→4 fails `TestKawPow`.
+- **2, constitution vs implementation**: the constitution's decay constant
+  993→990 fails the sweep, and since 035d9ea an era off-by-one fails it at
+  blocks 99,999 and 199,999. That second control only exists because the
+  job's "two independent implementations" turned out to be one implementation
+  twice, so until then the sweep could not disagree with itself.
+- **3, stratum sidecar gates**: reverting the worker-name capture in
+  `submit()` makes `TestProtocolConcurrent` fail under `-race`. That is the
+  data race which had already shipped through this very job while it ran the
+  detector over tests that never started the server. Recorded in the test's
+  own header comment, re-verified in dc404fc and ed5a046 (4,563 and 4,613
+  forward-path executions per run).
+
+The other two have NOTHING on record. **4, devnet end-to-end** and **5,
+formal verification** have never been shown to go red on a real regression,
+so read a green run there as "the checks passed", not as "the checks were
+shown able to fail". The e2e job is the one to watch, because it looks like
+the strongest gate in the set (it mines a real chain and audits supply
+wei-exact) and so gets credited by association: none of the three recorded
+mutations reaches it, and the constitution-text one cannot, since `ci_devnet.sh`
+recomputes the expected supply from `burn_audit.py`'s own constants and never
+reads CONSTITUTION.md. The missing controls would be, e.g., flipping the Go
+client's tail constant so the audit's delta goes non-zero, and flipping a
+constant in `fv/` to show `lake build` fails.
 
 ## 2026-08-13 (overnight): G6 KawPow, end to end
 
@@ -240,7 +257,10 @@ to show job 5's `lake build` does.
   matching the simulation. 66 uncles, all paid per Art. III.5, audit exact.
 - **CI added** (.github/workflows/ci.yml), green on GitHub: consensus unit
   gates, a constitution-vs-implementation consistency gate born from the
-  audit's drift findings, and a devnet e2e job. All negative-controlled.
+  audit's drift findings, and a devnet e2e job. "All negative-controlled" is
+  what this entry said, and it was too broad: the consensus and consistency
+  gates each have a recorded mutation, the e2e job never did. Scoped job by
+  job in the CI gates section above.
 - **Windows lesson, twice:** Windows tears down child processes when the
   launching session exits. Both the WSL node and the GPU miner need
   scheduled tasks (`WheelerNode`, `EverettGpuSoak`).
@@ -337,9 +357,14 @@ Wheeler balances).
 
 The one-command e2e (`scripts/ship_stratum_e2e.sh`) is green: RTX 3080
 mining an Everett KawPow devnet through the sidecar, ~1,000+ blocks in
-12 minutes, zero disconnects, ASERT climbing 131k → 6.4M+ on its
-textbook exponential (doubling per minute of fast blocks). Report:
-build/STRATUM_E2E_REPORT.md.
+12 minutes, ASERT climbing 131k → 6.4M+ on its textbook exponential
+(doubling per minute of fast blocks). Report: build/STRATUM_E2E_REPORT.md.
+This entry also claimed "zero disconnects", which is withdrawn: that run's own
+log tail records a miner disconnect at 14:27:15 (stratum/E2E_REPORT.md), and the
+miner-derived columns of that report were instrument error. The block count
+and the difficulty progression above came from the node and the sidecar's own
+log, so they stand; for a run where every number has a stated source, see the
+re-verified table added in fdb4788.
 
 Getting there took six live runs, each buying one real lesson (all now
 encoded in code comments, stratum/README.md, and the e2e script):
@@ -394,7 +419,10 @@ end in one session (commit 9e1181f, CI green):
 - **Bootnode identity preserved**: nodekey copied out before the datadir
   wipe and restored, so the published enode ad614b8c…@71.183.54.11:30303
   remains valid, Justin reconfigures nothing.
-- **Mac node**: --mine --miner.threads 0 (serves work only), etherbase
+- **Mac node**: --mine --miner.threads 0 (believed at the time to serve
+  work only; round 4 established that core-geth reads 0 as "use every
+  core" and disables local mining only on a negative value, so this node
+  was also CPU-mining KawPow for that period), etherbase
   Jiajun 0xf3F5…CBA2, kawpow-stratum on :3333 (log: build/stratum-wheeler.log),
   3080 mines via scheduled task WheelerGPU (mine_wheeler.cmd). First v2
   block mined 19s after the sidecar came up. Log line to look for:
@@ -606,3 +634,219 @@ step must measure something only success can produce. A height that
 advances, an exit status of 0, a marker that exists, a green `go test` with
 no tests in it, a metric read from a path that does not exist: each of those
 is equally satisfied by the failure it was supposed to catch.
+
+## 2026-08-14 (backfilled): the eight commits after round 3, 15 findings
+
+Round 3's fix commit landed at 00:24 and the night did not stop there. Five
+more cross-model passes ran between 00:30 and 01:38, DeepSeek three and Kimi
+two, first over round 2's commit and then over each fixed tip as it landed.
+Backfilled on the same reasoning as the entry above: SECURITY.md sends
+reviewers to this file for the full audit record, so a log that stops at the
+last tidy round is a false claim on the front door. Commit by commit, in the
+order they landed.
+
+1. **035d9ea, DeepSeek cross-model audit (isolated clone, read-only), 3
+   findings.** Round 3 had made `apply_kawpow_hooks.py` idempotent by CONTENT
+   and left its two siblings idempotent by MARKER, so an edited reward or DAA
+   hook body could never reach an existing tree while `deploy_node.sh`
+   reported the binary was built from the current patch set: the round-3
+   finding surviving in the two files the round-3 fix did not touch.
+   `apply_hook.py` and `apply_daa_hook.py` compare the inserted TEXT now and
+   carry `--verify`, and deploy runs all three instead of grepping for an
+   identifier. Second: `boot_devnet.sh`, the README's headline command, bound
+   the PRODUCTION ports (30303/8545/8551), so on an operator host it either
+   died on "address already in use" or, with production briefly down,
+   squatted the ports and held the live node in a launchd crash loop. It is
+   30306/8547/8554 now, env-overridable. Third: `check_consistency.py`'s "two
+   independent reward implementations" were the same five lines with the
+   operands reordered, so the wei-for-wei sweep could not disagree with
+   itself and a shared misreading of Article III would stay green. The second
+   model is derived a different way now, cumulative issuance differenced
+   across two heights. Writing it surfaced a fact worth keeping: the schedule
+   floors once PER ERA, so a closed-form D0*993^k/1000^k with a single final
+   floor is a DIFFERENT schedule and diverges from era 10. The per-era
+   convention is the law, and the model applies it explicitly.
+2. **ab6514c, the new race gate's first outing, and it caught its own
+   author.** The concurrency test added in round 3 to make the "vet + race
+   tests" job mean what its name says was itself racy, and CI found it on the
+   first run: the deferred restore of the `-node` flag ran while forward
+   goroutines spawned by `submit()` were still reading it inside `nodeCall`.
+   Test-harness only (`nodeURL` is written once by `flag.Parse` at startup),
+   but a flaky gate is worse than no gate. The restore drains first now,
+   acquiring every `forwardSlot` to prove no forward is in flight, since
+   `submit()` holds a slot for the whole call. Deterministic, not a sleep;
+   five uncached `-race` runs at `-cpu=1,2,8`.
+3. **dd45357, `verify_devnet.sh`'s guard variables were not exported.** `RPC`
+   and `EXPECT_CHAINID` were plain assignments, so a bare run passed neither
+   to the `burn_audit.py` it invokes and the audit fell back to its own
+   defaults instead of inheriting the chain guard the script had just
+   checked. Harmless where they are set in the environment (CI, an explicit
+   prefix), wrong in the one path a first-time operator takes. Surfaced while
+   reading Kimi's review notes on the invocation chain. Also confirmed that
+   round: a fresh clone of the published repo builds and passes all three
+   consensus gates (5/11/7 real tests, per `gate_test.sh`).
+4. **dc404fc, Kimi cross-model audit, 2 findings** (of three; the third, no
+   connection cap or read deadline on the stratum listener, was already
+   closed at HEAD by round 3). The sidecar forwarded the miner-supplied
+   header without checking it against the job's: a submit pairing job A with
+   job B's header, both live inside the node's stale window, could be
+   accepted for B while the sidecar marked A done, after which every later
+   share for A, including a genuine block-winning nonce, would take the done
+   early-ack and never reach the node. A block lost in silence while the
+   miner is told "accepted". Rejected with a log line now; deployed and
+   watched, zero rejections from the real kawpowminer. Second: the
+   dashboard's `ThreadingHTTPServer` read request lines from blocking sockets
+   with no timeout, so idle LAN connections pinned a thread and a descriptor
+   each until the process ran out and stopped answering while still looking
+   alive. Verified by attack: 60 silent connections, answers in 0.02s
+   throughout, all 60 reaped after the timeout window. The header check also
+   exposed that round 3's own test submitted a header not matching its job,
+   which would have made the concurrency test a no-op under the new
+   validation.
+5. **5b97486, DeepSeek round 2: `MINER_THREADS=0` was mining on every core.**
+   core-geth reads `--miner.threads 0` as "use every core" and disables local
+   mining only on a NEGATIVE value (`consensus/ethash/sealer.go`: `if threads
+   == 0 { threads = runtime.NumCPU() }`, then `if threads < 0 { threads = 0
+   }`). `MINER_THREADS=0` is documented and shipped as the compose default to
+   mean "serve work to the GPU miner, hash nothing", so the default docker
+   stack was quietly CPU-mining KawPow on the whole box and building a ~1 GiB
+   DAG in RAM, and `ship_stratum_e2e.sh`'s own node had the same intent and
+   the same bug, i.e. every GPU-throughput number it measured was competing
+   with an all-core CPU miner. The entrypoint translates 0 to -1 now. The
+   live Wheeler node was never affected: its plist asks for 2 threads
+   deliberately. Second: the dashboard's chain expectation was pinned to
+   Wheeler, so the documented default invocation against any other chain
+   (devnet today, mainnet on launch day, which LAUNCH_DIFFICULTY.md plans
+   this dashboard to watch) showed a permanent red audit FAIL on a healthy
+   node. It resolves from the node at startup now unless pinned explicitly,
+   so the guard still catches a node changing identity underneath a running
+   dashboard.
+6. **fdb4788, the e2e report re-run so that every number in it is measured.**
+   Leaving `stratum/E2E_REPORT.md` at "three of these numbers are instrument
+   error" is a worse artifact than fixing it, so the rewritten harness was
+   actually run and its results appended with the provenance stated per row:
+   139 blocks in a 2-minute window, 169 accepted shares (the metric that
+   previously always read 0), 11.3 MH/s computed from shares actually
+   delivered, supply audit exact. Short window, and the GPU was shared with
+   production Wheeler mining, so the rate is about half the card's solo
+   figure; the point is that each number now has a source. The run doubles as
+   live validation of the harness fixes from rounds 2 and 3: it booted its
+   own devnet on dedicated ports, proved KawPow from the node's log rather
+   than assuming it, ran both miners side by side on pc3080 (production
+   :3333, the run :3334) with PID-scoped cleanup reaping only its own, and
+   left zero processes behind.
+7. **23c2efc, DeepSeek round 2 against the new tip, 2 findings.** Re-running
+   the same reviewer on the fixed tree paid off: the miner-threads bug was in
+   a THIRD runner. `dist/run-node.sh` passed `THREADS` straight through, so
+   the shipped package's own documented flow (`MINE=1 THREADS=0`, "serve
+   work, no CPU mining") CPU-mined KawPow on every core. The lesson recorded
+   there: "fixed" means fixed in every runner, and only two of three had been
+   swept. Second: the container inited only when chaindata was absent, with
+   no check that the volume's chain matched `GENESIS`, so switching `GENESIS`
+   on an existing volume, which is exactly how the README says to move a
+   stack from devnet to Wheeler, served the OLD chain under the NEW
+   `--networkid`: every handshake fails on the genesis mismatch and the node
+   sits at zero peers on old blocks with no error while the operator believes
+   they joined. The entrypoint records the chain at init and refuses a
+   mismatch, probing once for volumes made by older images. Both verified
+   with a stubbed geth that records its arguments.
+8. **ed5a046, Kimi round 2, 6 findings, most of them defects in the same
+   night's own hardening.** The stratum pre-auth deadline re-armed on EVERY
+   received line, before parsing, so a socket dripping one junk byte a minute
+   never expired, and 128 of them would fill the connection cap round 3 had
+   just added and lock out every real miner: the new cap turned into the new
+   denial of service. The unauthorized budget is absolute from connect time
+   now. The dashboard carried the identical flaw, because Python's
+   `settimeout()` bounds silence rather than the connection, so a client
+   dripping a byte every 9 seconds held its thread indefinitely; a hard
+   per-connection deadline closes the socket outright (25 dripping
+   connections, all reaped, 0.02s answers throughout). `boot_devnet.sh` was a
+   FOURTH runner passing `--miner.threads 0` through as "serve work only".
+   The genesis-mismatch guard round 3 added to `boot_devnet.sh` failed OPEN:
+   it required BOTH probes to succeed before refusing, so it skipped exactly
+   when something was already wrong; either probe coming back empty is a
+   refusal now. `make_dist.sh` never ran the hook verifications that
+   `apply_kawpow_hooks`'s own docstring and this file both said it ran, and a
+   hooks-only change leaves the pin and all four cmp'd files untouched, so
+   the packager would have shipped a binary with stale injected consensus
+   code while printing "packaged:"; all three verifies run before packaging
+   now. And miner-controlled strings were logged unquoted, so a newline
+   inside a jobID or header forged whole log lines, including fake
+   `BLOCK: job ...` entries, which is the exact shape the e2e harness counts
+   as blocks: every miner-supplied field is `%q`-quoted now, and malformed
+   submits (bad nonce or mix shape) are rejected before the forward instead
+   of being acked true and forwarded anyway.
+
+What this campaign added to the standing lesson above. Every round after the
+first found its defects in the PREVIOUS round's fixes: round 3's hook
+hardening in the two appliers it skipped, round 3's connection cap in the
+deadline that made it fillable, round 3's own new race test racing itself,
+round 3's genesis guard in `boot_devnet.sh` failing open, and the same
+core-geth `--miner.threads` semantic caught in a second, third, and fourth
+runner across three separate commits. The recurring shape is the one
+named above and it did not change: a guard that measures something the
+failure also produces. A height that advances under an old binary, a marker
+that exists next to a stale body, a cross-check whose second model was the
+first one with its operands reordered, a socket timeout that bounds silence
+instead of connection lifetime, a mismatch guard that skips when its own
+probe fails. Two working rules came out of it: a fix is not landed until it
+is landed in every runner that has the same intent, and a new guard is
+itself unaudited code that belongs in the next round's scope.
+
+## 2026-08-14: audit round 4, 6 code findings, five in the night's own guards
+
+6e96e89, run against ed5a046 on the theory that the newest code is the least
+reviewed. It was: five of the six are defects in guards written a few hours
+earlier, which is the rule at the end of the entry above being paid out on
+its first test.
+
+1. The container's volume-genesis guard from 23c2efc was a PERMANENT NO-OP.
+   `eth.chainId()` has no console output formatter in the pinned tree, so it
+   returns the raw RPC quantity (`0xed14f0`, confirmed against the live
+   node), and the validator accepted only decimal digits. It therefore
+   discarded every real answer, wrote no marker, and compared nothing, for
+   exactly the legacy volumes it was written to protect. Hex is normalized
+   now.
+2. The fail-closed genesis guard added to `boot_devnet.sh` in ed5a046
+   BRICKED the script on this host: both probes start a full geth, which
+   binds the default authrpc 8551 before it evaluates `--exec`, so on a host
+   already running a node the probe died before printing and the new
+   fail-closed check misdiagnosed it as an unreadable datadir, telling the
+   operator to stop production, after tens of minutes of gates. Both probes
+   use dedicated ports now, which the script's own exec line already did. A
+   guard that fails closed has to be right about WHY it is failing.
+3. `deploy_node.sh`'s replacement identity proof was a tautology: round 3
+   replaced "the height advanced" with "the sha256 of the running binary
+   matches the one built", but it hashed the file at `$GETH`, the same file
+   step 3 had just built and hashed, so it could not disagree. It also chose
+   the lowest pid matching the tree, which a devnet started from that tree
+   satisfies. It asks launchd which pid it manages now, and compares the
+   INODE the process holds open as its text image against the inode just
+   built. Verified live.
+4. The stratum `idleTimeout` was unreachable until a miner's THIRD line,
+   because the loop arms it at the top of an iteration only if the session
+   was already authorized, so a rig that authorized and then waited for its
+   first job was dropped 60s after connecting. Production at ~11 MH/s hid
+   it; a small rig or a restarting node would not. The generous window is
+   armed the moment authorize is handled.
+5. `run_stratum.sh`'s live-sidecar guard and `ci_prepare.sh`'s in-use check
+   used pgrep patterns anchored only at the start, so the e2e harness's
+   `kawpow-stratum-e2e` binary satisfied the production guard and would
+   refuse a recovery with a false statement. Both ends anchored now.
+6. The production core-geth tree had drifted one commit behind `client/`
+   again (comment-only, no consensus impact, but `make_dist.sh` would have
+   refused to package it). Redeployed: byte-identical to HEAD, chain
+   continued 4661 to 4665, audit wei-exact.
+
+The docs lens of the same round found the identical class on the front door,
+so it is logged here rather than quietly fixed: SECURITY.md told reviewers
+the status log "runs to the current commit" while the log stopped eight
+commits back (the entry above is that backfill), its negative-control
+paragraph accounted for four of the five CI jobs and so credited the devnet
+e2e gate by omission, `stratum/README.md` still cited the 12-minute run for
+"zero disconnects" after the report itself retracted the phrase, and
+`client/GETH_INTEGRATION.md` still printed the bare `go test -run` form as
+"exactly what CI runs", untouched since round 1 and so false from the moment
+round 3 put `gate_test.sh` in front of every gate: the canonical integration
+doc was teaching new integrators the vacuous-pass shape round 3 had just
+removed.

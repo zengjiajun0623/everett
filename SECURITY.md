@@ -35,12 +35,22 @@ Posture:
 Every constitutional article is enforced by executable gates (CI on
 every push) and, for the monetary schedule and difficulty filter, by
 machine-checked proofs (fv/) and exhaustive enumeration. The full audit
-trail, including failures, lives in RUNBOOK.md, whose status log runs to
-the current commit.
+trail, including failures, lives in RUNBOOK.md, whose status log runs
+through audit round 4 (6e96e89, the tip when this was written). If the
+log's last entry is older than the commits you are reading, treat the
+difference as unreviewed rather than as nothing having happened: the log
+falling behind the tree is a defect this project has now recorded twice,
+in rounds 3 and 4.
 
 Not every gate has been negative-controlled, and RUNBOOK.md scopes which
-have: two recorded mutations turn the consensus and the
-constitution-vs-implementation jobs red, while the stratum sidecar job
-and the Lean proof job have never been shown able to fail on a real
-regression. Read a green run there as "the checks passed", not as "the
-checks were shown able to fail".
+have, job by job. Of the five CI jobs (.github/workflows/ci.yml), three
+have a recorded mutation that turns them red: the consensus unit gates
+(KawPow period 3→4), the constitution-vs-implementation gate (decay
+constant 993→990, and an era off-by-one at the sweep's boundary blocks),
+and the stratum sidecar gates (reverting the worker-name capture fails
+the concurrency test under -race). The devnet end-to-end job and the
+Lean proof job have nothing on record: no mutation has been shown to
+make either fail. Read a green run on those two as "the checks passed",
+not as "the checks were shown able to fail". The e2e job is the easiest
+to over-credit, since it mines a real chain and audits supply wei-exact,
+but none of the three recorded mutations reaches it.

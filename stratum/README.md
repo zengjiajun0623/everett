@@ -7,7 +7,7 @@ soak and stalled block production as difficulty climbed).
 
 ## What it is
 
-A ~300-line Go proxy with a node on one side and miners on the other:
+A single-file Go proxy with a node on one side and miners on the other:
 
 ```
 kawpowminer/T-Rex  --stratum-->  kawpow-stratum  --eth_getWork/submitWork-->  geth
@@ -17,6 +17,13 @@ It is **consensus-free by design**: it never hashes or validates proof of
 work. The node does KawPow verification on `eth_submitWork` (the light path
 proven bit-exact against Ravencoin). The sidecar only translates transports
 and tracks jobs.
+
+On size, since this page used to say "~300-line": `kawpow-stratum.go` is
+537 lines at commit 6e96e89. The growth is hardening the audit rounds
+paid for, and it is the part to read if you are sizing the attack surface: a
+connection cap, an absolute pre-authorize deadline plus a long idle one, an
+in-flight forward semaphore, job/header and submit-shape validation, and
+quoted logging of every miner-controlled string.
 
 ## Run
 
@@ -113,5 +120,16 @@ nonce composition) stays future work: pools need it, solo miners don't.
    Shares are acked instantly, forwards run async (max 4 in flight,
    8-second RPC timeout, drop-when-saturated).
 
-Proof: 12-minute e2e (stratum/E2E_REPORT.md), RTX 3080, ~1,000+
-blocks, zero disconnects, ASERT climbing 131k → multi-M on schedule.
+Proof, scoped to what was actually measured. The 12-minute e2e
+(stratum/E2E_REPORT.md), RTX 3080: 1,368 blocks with ASERT climbing
+131,427 → 72,890,515 on schedule. Both numbers came from the node itself
+over IPC, which is why the report's correction notice leaves them
+standing. This page also cited that run for "zero disconnects", which
+the report retracts: its log tail records a miner disconnect at 14:27:15,
+and its miner-derived columns were instrument error, not measurement.
+
+For a run where every number has a stated source, see the re-verified table
+at the top of the same report: 139 blocks in a 2-minute window, 169 accepted
+shares, 11.3 MH/s computed from shares actually delivered, supply audit
+exact. Short window on a GPU shared with production mining, so the rate is
+roughly half the card's solo figure; the point is provenance, not a record.
