@@ -39,10 +39,24 @@ func TestProtocolConcurrent(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":true}`, req.ID)
 	}))
-	defer node.Close()
 	savedURL := *nodeURL
 	*nodeURL = node.URL
-	defer func() { *nodeURL = savedURL }()
+	// Restoring the flag and closing the fake node must happen only after
+	// every in-flight forward goroutine is done: those goroutines read
+	// *nodeURL inside nodeCall, so an unsynchronized restore races them
+	// (caught in CI, not locally: pure test-harness timing). Acquiring
+	// every forward slot proves none are still running, because submit()
+	// holds a slot for the whole call and releases it on return.
+	defer func() {
+		for i := 0; i < cap(forwardSlots); i++ {
+			forwardSlots <- struct{}{}
+		}
+		*nodeURL = savedURL
+		node.Close()
+		for i := 0; i < cap(forwardSlots); i++ {
+			<-forwardSlots
+		}
+	}()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
