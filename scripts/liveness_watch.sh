@@ -50,6 +50,16 @@ notify() {
     >/dev/null 2>&1 || log "WARN: could not send iMessage (Messages not signed in?)"
 }
 
+# Record who is connected, while they are still connected. Peer identity
+# lives only in a live admin_peers call -- the node logs "peercount=N" and
+# nothing else -- so a peer that disconnects is unidentifiable forever
+# after. This rides along because this script already polls once a minute.
+#
+# Failure here must never touch the alarm: a ledger is a nice-to-have, a
+# stalled chain is not. Hence the guard and the discarded exit status.
+[ "${PEER_LEDGER_ENABLED:-1}" = "1" ] && \
+  python3 "$EVERETT/scripts/peer_ledger.py" >> "$LOG" 2>&1 || true
+
 HEAD_JSON=$(curl -s -m 10 -X POST -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}' \
   "$RPC" 2>/dev/null || true)

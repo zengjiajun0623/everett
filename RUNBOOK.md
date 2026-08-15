@@ -801,9 +801,28 @@ itself unaudited code that belongs in the next round's scope.
 darwin-arm64) connected inbound running CoreGeth/v1.12.23-unstable-10f1ea74,
 our exact pin, and synced from genesis to the chain tip (block 7,499, head
 0x8669228b..., total difficulty 1,931,987,981,088) in about 90 seconds. It
-is a verifier, not a miner: it independently checked every KawPow seal
-without asking anyone's permission, which is the property the whole project
-exists to demonstrate. Three earlier attempts that same night (Linode, and
+independently checked every KawPow seal without asking anyone's permission,
+which is the property the whole project exists to demonstrate.
+
+CORRECTION (2026-08-15). This entry said "it is a verifier, not a miner".
+That was true when written and false 73 minutes later. A full-chain scan
+run for an unrelated question found 0x8475836e921dbc273a37a588824feccc33cdb7e8
+mining 14 blocks (#7814-#7918) in a 16-minute burst starting 13:31, holding
+2.378290 ETT it has not moved. The blocks carry v1.12.23 CoreGeth on darwin
+built with go1.25.5 -- our exact pin, an independent toolchain (this Mac has
+only ever had go1.26.5), and stratum-pattern nonces, so that participant ran
+the whole stack: node, sidecar and miner. No LAN host runs a node and no
+outside address ever reached our stratum port, so those blocks were sealed
+on their hardware, not ours.
+
+Attribution to the Romania peer is circumstantial, not proven: the node logs
+covering 13:31 were rotated away before anyone thought to ask, so nothing
+now ties that coinbase to that IP. What survives is the join recipe working
+end to end for someone we have never met -- and a reminder that "not a
+miner" was a claim about one moment stated as a property, which is the same
+shape of error the audit rounds kept finding in the code.
+
+Three earlier attempts that same night (Linode, and
 two others) all ran STOCK builds, handshook, synced zero blocks and dropped,
 because the genesis deliberately carries no custom fields: an unpatched
 client cannot tell it is on a chain it cannot verify. The README now carries

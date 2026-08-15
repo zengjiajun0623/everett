@@ -140,6 +140,18 @@ open('stratum/kawpow-stratum.go','w').write(s)
 PY" \
   "cd stratum && go test -count=1 -run TestPerIPCap ."
 
+# --- peer ledger -------------------------------------------------------------
+# The ledger answers "who was connected when those blocks were mined". If it
+# drops the host it still writes a plausible-looking row, which is the exact
+# failure mode this repo keeps meeting: evidence that answers nothing.
+run_control "peer host dropped from the ledger" "peer-ledger test" scripts/peer_ledger.py \
+  "python3 - <<'PY'
+s=open('scripts/peer_ledger.py').read()
+s=s.replace('host = addr.rsplit(\":\", 1)[0] if \":\" in addr else addr','host = \"?\"')
+open('scripts/peer_ledger.py','w').write(s)
+PY" \
+  "python3 scripts/test_peer_ledger.py"
+
 # --- consensus vectors (slow: needs the patched tree) ------------------------
 if [ "$FULL" = "1" ]; then
   echo
