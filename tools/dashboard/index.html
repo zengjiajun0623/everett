@@ -144,8 +144,14 @@ applyTheme(localStorage.getItem(THEME_KEY) || "light");
 // controlled by remote peers or miners; never interpolate them raw.
 const esc = s => String(s).replace(/[&<>"']/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// An unlabelled address here reads as a stranger on the network, so every
+// address we own belongs in this map. pc3080's was missing and cost a real
+// "did someone join?" scare: it is the WSL node's auto-created mining
+// account, so it appears in no file on this Mac and cannot be recognised
+// from here. Its 5 blocks are CPU-mined at --miner.threads 2.
 const CAT = { "0xf3f527b70af6012f328d3ede7fcd3f5f3ca6cba2": ["var(--cat-a)", "jiajun"],
               "0x1000000000000000000000000000000000000001": ["var(--cat-b)", "justin·docker"],
+              "0x2e0fa055454bf4038e5506591406476a6d5b91f7": ["var(--cat-b)", "pc3080·cpu (ours)"],
               "0x3f37629109202c791814f972f689f23696d32a95": ["var(--cat-c)", "burn-test (ours)"] };
 const OTHER = ["var(--cat-c)", null];
 const minerInfo = m => CAT[m] || [OTHER[0], m.slice(0, 8) + "…" + m.slice(-4)];
